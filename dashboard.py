@@ -688,7 +688,7 @@ def build_dashboard(refresh: bool = False) -> Path:
     default_variant = variants[0]
     default_payload = render_variant_payload(default_variant)
     variant_payloads = {variant["summary"]["key"]: render_variant_payload(variant) for variant in variants}
-    default_chart_keys = {"actuallyfinance_gtt", "benchmark_sma", "benchmark_buy_hold"}
+    default_chart_keys = {"actuallyfinance_gtt"}
     chart_series = growth_chart_series(variants)
     chart_keys = [str(spec["key"]) for spec in variant_specs] + ["benchmark_sma", "benchmark_buy_hold"]
     growth_chart = svg_multi_growth_chart(chart_series, default_chart_keys)
@@ -1184,6 +1184,7 @@ def render_html(
     }}
     .chart-toggle input {{
       margin: 0;
+      accent-color: #111827;
     }}
     .swatch {{
       width: 11px;
