@@ -13,11 +13,13 @@ Static Python rebuild of the spreadsheet model. This is a separate project folde
 3. When timing is on, hold the U.S. equity total-return proxy only when it is above its 200-day simple moving average.
 4. Compare against a 200-day SMA strategy that is always active and against buy-and-hold.
 
-The default config sets every indicator to `signal_score=1.0` and
-`TIMING_ON_TRIGGER_SCORE=2.0`, which is equivalent to "2+ indicators trip."
+The default ActuallyFinance GTT strategy excludes employment growth from scoring,
+keeps UNRATE at `signal_score=2.0`, and counts retail sales, industrial
+production, real income, and housing starts at `signal_score=1.0`. Timing turns
+on when the selected indicator scores reach `TIMING_ON_TRIGGER_SCORE=2.0`.
 To test "1+ trigger," set `TIMING_ON_TRIGGER_SCORE=1.0`; for "3+ triggers,"
 set it to `3.0`. To make an indicator count double or half, edit that
-indicator's `signal_score`.
+indicator's `signal_score` or the strategy score map in `dashboard.py`.
 
 ## Run
 

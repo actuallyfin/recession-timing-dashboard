@@ -30,12 +30,16 @@ COLORS = {
 
 
 def strategy_variant_specs() -> list[dict[str, object]]:
-    actuallyfinance_scores = {rule.key: rule.signal_score for rule in INDICATORS}
+    actuallyfinance_scores = {
+        rule.key: rule.signal_score
+        for rule in INDICATORS
+        if rule.key != "employment"
+    }
     return [
         {
             "key": "actuallyfinance_gtt",
             "label": "ActuallyFinance GTT",
-            "description": "Score-based economic gate. UNRATE counts as 2; the other indicators count as 1; timing turns on at score 2.",
+            "description": "Score-based economic gate. UNRATE counts as 2; retail sales, industrial production, real income, and housing starts count as 1; timing turns on at score 2.",
             "scores": actuallyfinance_scores,
             "trigger_score": TIMING_ON_TRIGGER_SCORE,
         },
