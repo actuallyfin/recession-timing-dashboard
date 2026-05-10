@@ -96,8 +96,9 @@ INDICATORS: tuple[IndicatorRule, ...] = (
 
 # The economic timing gate is score based.
 #
-# Default behavior matches "2+ indicators trip": every indicator has a
-# signal_score of 1.0 and timing turns on when the score reaches 2.0.
+# Indicator scores can be mixed and matched by the strategy variants in
+# dashboard.py. The default ActuallyFinance GTT variant excludes employment
+# growth, counts UNRATE double, and turns timing on when the score reaches 2.0.
 #
 # Examples:
 # - 1+ trigger: set TIMING_ON_TRIGGER_SCORE = 1.0
