@@ -498,10 +498,46 @@ def render_indicator_rows(current: pd.DataFrame) -> str:
     )
 
 
-def render_stat_rows(stats: pd.DataFrame) -> str:
+def build_comparison_stats(variants: list[dict[str, object]]) -> pd.DataFrame:
+    rows = []
+    for variant in variants:
+        row = variant["stats"].iloc[0].copy()
+        row["strategy_key"] = variant["summary"]["key"]
+        row["row_kind"] = "strategy"
+        rows.append(row)
+
+    benchmarks = variants[0]["stats"].iloc[1:].copy()
+    benchmark_keys = {
+        "200D SMA always on": "benchmark_sma",
+        "Buy and hold": "benchmark_buy_hold",
+    }
+    for _, row in benchmarks.iterrows():
+        row = row.copy()
+        row["strategy_key"] = benchmark_keys.get(str(row["strategy"]), "benchmark")
+        row["row_kind"] = "benchmark"
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def render_stat_rows(stats: pd.DataFrame, selected_key: str | None = None) -> str:
     return "\n".join(
+        render_stat_row(row, selected_key)
+        for row in stats.itertuples(index=False)
+    )
+
+
+def render_stat_row(row: object, selected_key: str | None = None) -> str:
+    row_key = html.escape(str(getattr(row, "strategy_key", "")))
+    row_kind = html.escape(str(getattr(row, "row_kind", "strategy")))
+    row_class = ""
+    if row_kind == "strategy":
+        row_class = "selected" if row_key == selected_key else "muted"
+    elif row_kind == "benchmark":
+        row_class = "benchmark"
+    class_attr = f' class="{row_class}"' if row_class else ""
+    return (
         f"""
-        <tr>
+        <tr{class_attr} data-strategy-key="{row_key}" data-row-kind="{row_kind}">
           <td data-label="Strategy">{html.escape(row.strategy)}</td>
           <td data-label="Start" class="num">{html.escape(row.start)}</td>
           <td data-label="End" class="num">{html.escape(row.end)}</td>
@@ -509,11 +545,11 @@ def render_stat_rows(stats: pd.DataFrame) -> str:
           <td data-label="CAGR" class="num">{pct(row.cagr, 1)}</td>
           <td data-label="Vol" class="num">{pct(row.vol, 1)}</td>
           <td data-label="Sharpe" class="num">{num(row.sharpe, 2)}</td>
+          <td data-label="Sortino" class="num">{num(row.sortino, 2)}</td>
           <td data-label="Max DD" class="num">{pct(row.max_drawdown, 1)}</td>
           <td data-label="Avg % Invested" class="num">{pct(row.avg_pct_invested, 1)}</td>
         </tr>
         """
-        for row in stats.itertuples(index=False)
     )
 
 
@@ -557,7 +593,6 @@ def render_variant_payload(variant: dict[str, object]) -> dict[str, object]:
             "spySma200": num(summary["spy_sma_200"], 2),
         },
         "indicatorRows": render_indicator_rows(variant["current_indicators"]),
-        "statRows": render_stat_rows(variant["stats"]),
         "recentRows": render_recent_rows(monthly),
         "rulesHtml": build_rules_html(variant["spec"]),
         "equityChart": svg_line_chart(
@@ -687,6 +722,7 @@ def build_dashboard(refresh: bool = False) -> Path:
     next_update_dates = build_next_update_dates(result, refresh=refresh)
     variants = [build_variant_result(result, spec, next_update_dates) for spec in variant_specs]
     default_variant = variants[0]
+    comparison_stats = build_comparison_stats(variants)
     default_payload = render_variant_payload(default_variant)
     variant_payloads = {variant["summary"]["key"]: render_variant_payload(variant) for variant in variants}
     default_chart_keys = {"actuallyfinance_gtt"}
@@ -698,7 +734,7 @@ def build_dashboard(refresh: bool = False) -> Path:
     default_variant["daily"].to_csv(OUTPUT_DIR / "daily_strategy.csv")
     default_variant["monthly"].to_csv(OUTPUT_DIR / "monthly_signal.csv")
     default_variant["current_indicators"].to_csv(OUTPUT_DIR / "current_indicators.csv", index=False)
-    default_variant["stats"].to_csv(OUTPUT_DIR / "performance_summary.csv", index=False)
+    comparison_stats.to_csv(OUTPUT_DIR / "performance_summary.csv", index=False)
     (OUTPUT_DIR / "summary.json").write_text(json.dumps(default_variant["summary"], indent=2), encoding="utf-8")
     all_variant_stats = []
     for variant in variants:
@@ -728,6 +764,7 @@ def build_dashboard(refresh: bool = False) -> Path:
         default_payload,
         growth_chart,
         growth_controls,
+        render_stat_rows(comparison_stats, str(default_variant["summary"]["key"])),
     )
     output_path = OUTPUT_DIR / "index.html"
     output_path.write_text(html_text, encoding="utf-8")
@@ -929,7 +966,7 @@ def render_html(
       font-size: 14px;
     }}
     .table-scroll table {{
-      min-width: 980px;
+      min-width: 1080px;
     }}
     .current-indicators table {{
       table-layout: auto;
@@ -964,6 +1001,19 @@ def render_html(
       font-size: 12px;
       text-transform: uppercase;
       font-weight: 720;
+    }}
+    #stat-rows tr.muted {{
+      color: #8a94a6;
+    }}
+    #stat-rows tr.muted a {{
+      color: #8a94a6;
+    }}
+    #stat-rows tr.selected {{
+      color: var(--ink);
+      font-weight: 620;
+    }}
+    #stat-rows tr.benchmark {{
+      color: var(--ink);
     }}
     .num {{
       text-align: right;
@@ -1100,6 +1150,7 @@ def render_html(
     default_payload: dict[str, object],
     growth_chart: str,
     growth_controls: str,
+    comparison_stat_rows: str,
 ) -> str:
     options = "\n".join(
         f'<option value="{html.escape(str(spec["key"]))}">{html.escape(str(spec["label"]))}</option>'
@@ -1268,7 +1319,7 @@ def render_html(
       font-size: 14px;
     }}
     .table-scroll table {{
-      min-width: 980px;
+      min-width: 1080px;
     }}
     .current-indicators table {{
       table-layout: auto;
@@ -1300,6 +1351,19 @@ def render_html(
       font-size: 12px;
       text-transform: uppercase;
       font-weight: 720;
+    }}
+    #stat-rows tr.muted {{
+      color: #8a94a6;
+    }}
+    #stat-rows tr.muted a {{
+      color: #8a94a6;
+    }}
+    #stat-rows tr.selected {{
+      color: var(--ink);
+      font-weight: 620;
+    }}
+    #stat-rows tr.benchmark {{
+      color: var(--ink);
     }}
     .num {{
       text-align: right;
@@ -1527,11 +1591,11 @@ def render_html(
       <h2>Performance Summary</h2>
       <div class="table-scroll">
         <table class="responsive-table">
-          <thead><tr><th>Strategy</th><th class="num">Start</th><th class="num">End</th><th class="num">Final Equity</th><th class="num">CAGR</th><th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Max DD</th><th class="num">Avg % Invested</th></tr></thead>
-          <tbody id="stat-rows">{default_payload["statRows"]}</tbody>
+          <thead><tr><th>Strategy</th><th class="num">Start</th><th class="num">End</th><th class="num">Final Equity</th><th class="num">CAGR</th><th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Sortino</th><th class="num">Max DD</th><th class="num">Avg % Invested</th></tr></thead>
+          <tbody id="stat-rows">{comparison_stat_rows}</tbody>
         </table>
       </div>
-      <p class="note">Stats are computed from daily returns. Idle capital earns the cash proxy return, and Sharpe is calculated on excess returns over that same cash series.</p>
+      <p class="note">Stats are computed from daily returns. Idle capital earns the cash proxy return; Sharpe and Sortino are calculated on excess returns over that same cash series.</p>
     </section>
     <section>
       <h2>Selected Strategy Rules</h2>
@@ -1566,6 +1630,17 @@ def render_html(
       }});
     }}
     chartInputs.forEach(input => input.addEventListener("change", updateGrowthLines));
+    function updatePerformanceSelection(key) {{
+      document.querySelectorAll("#stat-rows tr[data-row-kind='strategy']").forEach(row => {{
+        if (row.dataset.strategyKey === key) {{
+          row.classList.add("selected");
+          row.classList.remove("muted");
+        }} else {{
+          row.classList.add("muted");
+          row.classList.remove("selected");
+        }}
+      }});
+    }}
     function renderStrategy(key) {{
       const strategy = strategies[key];
       const summary = strategy.summary;
@@ -1585,7 +1660,7 @@ def render_html(
       document.getElementById("trend-sub").textContent = summary.spyClose + " vs " + summary.spySma200;
       document.getElementById("macro-date").textContent = summary.latestMacroReleaseDate;
       document.getElementById("indicator-rows").innerHTML = strategy.indicatorRows;
-      document.getElementById("stat-rows").innerHTML = strategy.statRows;
+      updatePerformanceSelection(key);
       document.getElementById("rules-html").innerHTML = strategy.rulesHtml;
       document.getElementById("signal-chart").innerHTML = strategy.signalChart;
       document.getElementById("recent-rows").innerHTML = strategy.recentRows;
