@@ -1011,7 +1011,7 @@ def render_html(
   <header>
     <div class="wrap">
       <h1>Recession Timing Dashboard</h1>
-      <p>Static v1. Economic indicators contribute configurable signal scores using hybrid macro data; when the total score reaches the trigger, the U.S. equity total-return proxy follows a 200-day simple moving average rule.</p>
+      <p>This dashboard provides the current inputs to a timing strategy inspired by Philosophical Economics <a href="https://www.philosophicaleconomics.com/2016/01/gtt/">Growth-Trend Timing</a> strategies. Backtested results for the strategy, and variations of the original proposed GTT strategies are also provided below. Economic indicators contribute signal scores based on the latest macro data; when the selected strategy's signal reaches its trigger, the portfolio switches from an S&P 500 buy and hold to a 200-day simple moving average rule.</p>
       <div class="status">
         <div class="metric primary">
           <div class="label">Current Signal</div>
@@ -1339,7 +1339,7 @@ def render_html(
   <header>
     <div class="wrap">
       <h1>Recession Timing Dashboard</h1>
-      <p>Economic indicators contribute configurable signal scores using hybrid macro data; when the selected strategy's signal reaches its trigger, the U.S. equity total-return proxy follows a 200-day simple moving average rule.</p>
+      <p>This dashboard provides the current inputs to a timing strategy inspired by Philosophical Economics <a href="https://www.philosophicaleconomics.com/2016/01/gtt/">Growth-Trend Timing</a> strategies. Backtested results for the strategy, and variations of the original proposed GTT strategies are also provided below. Economic indicators contribute signal scores based on the latest macro data; when the selected strategy's signal reaches its trigger, the portfolio switches from an S&P 500 buy and hold to a 200-day simple moving average rule.</p>
       <div class="strategy-control">
         <label for="strategy-select">Strategy</label>
         <select id="strategy-select">{options}</select>
