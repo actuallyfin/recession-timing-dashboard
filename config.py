@@ -45,7 +45,7 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         direction="below",
         signal_score=1.0,
         display="YoY growth below 0%",
-        source_url="https://fred.stlouisfed.org/series/RRSFS",
+        source_url="https://fred.stlouisfed.org/graph/?g=3asR",
     ),
     IndicatorRule(
         key="industrial_production",
@@ -56,7 +56,7 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         direction="below",
         signal_score=1.0,
         display="YoY growth below 0%",
-        source_url="https://fred.stlouisfed.org/series/INDPRO",
+        source_url="https://fred.stlouisfed.org/graph/?g=3atC",
     ),
     IndicatorRule(
         key="employment",
@@ -67,7 +67,7 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         direction="below",
         signal_score=1.0,
         display="YoY growth below 0%",
-        source_url="https://fred.stlouisfed.org/series/PAYEMS",
+        source_url="https://fred.stlouisfed.org/graph/?g=3au3",
     ),
     IndicatorRule(
         key="real_income",
@@ -78,7 +78,7 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         direction="below",
         signal_score=1.0,
         display="YoY growth below 3%",
-        source_url="https://fred.stlouisfed.org/series/RPI",
+        source_url="https://fred.stlouisfed.org/graph/?g=3aud",
     ),
     IndicatorRule(
         key="housing_starts",
@@ -89,7 +89,7 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         direction="below",
         signal_score=1.0,
         display="YoY growth below -10%",
-        source_url="https://fred.stlouisfed.org/series/HOUST",
+        source_url="https://fred.stlouisfed.org/graph/?g=3aud",
     ),
 )
 

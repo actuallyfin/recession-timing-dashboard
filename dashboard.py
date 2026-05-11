@@ -231,7 +231,8 @@ def build_rules_html(spec: dict[str, object]) -> str:
     scores = spec["scores"]
     used_rules = [rule for rule in INDICATORS if rule.key in scores]
     used_list = "\n".join(
-        f"<li>{html.escape(rule.name)}: {html.escape(rule.display)}; score {float(scores[rule.key]):g}.</li>"
+        f'<li><a href="{html.escape(rule.source_url)}">{html.escape(rule.name)}</a>: '
+        f"{html.escape(rule.display)}; score {float(scores[rule.key]):g}.</li>"
         for rule in used_rules
     )
     return f"""
