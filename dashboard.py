@@ -231,8 +231,8 @@ def build_rules_html(spec: dict[str, object]) -> str:
     scores = spec["scores"]
     used_rules = [rule for rule in INDICATORS if rule.key in scores]
     used_list = "\n".join(
-        f'<li><a href="{html.escape(rule.source_url)}">{html.escape(rule.name)}</a>: '
-        f"{html.escape(rule.display)}; score {float(scores[rule.key]):g}.</li>"
+        f'<li><a href="{html.escape(rule.source_url)}">{html.escape(rule.name)}</a>; '
+        f"score {float(scores[rule.key]):g}.</li>"
         for rule in used_rules
     )
     return f"""
@@ -243,7 +243,7 @@ def build_rules_html(spec: dict[str, object]) -> str:
         <li>When timing is on, hold the U.S. equity proxy only when price is above its 200-day simple moving average.</li>
         <li>When timing is off, ignore the SMA rule and remain invested.</li>
       </ol>
-      <p class="note">Indicators used by this strategy:</p>
+      <p class="note">Indicators used by this strategy (links to FRED):</p>
       <ul class="rules">{used_list}</ul>
       <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The equity proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the 200-day SMA is available.</p>
     """
