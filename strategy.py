@@ -296,6 +296,13 @@ def _performance_stats(daily: pd.DataFrame, prefix: str, label: str) -> dict[str
         if excess_returns.std() and not np.isnan(excess_returns.std())
         else np.nan
     )
+    downside_returns = excess_returns.clip(upper=0)
+    downside_deviation = np.sqrt((downside_returns**2).mean())
+    sortino = (
+        excess_returns.mean() / downside_deviation * np.sqrt(TRADING_DAYS_PER_YEAR)
+        if downside_deviation and not np.isnan(downside_deviation)
+        else np.nan
+    )
     drawdown = equity / equity.cummax() - 1
     invested_col = f"{prefix}_invested"
     exposure = daily[invested_col].mean() if invested_col in daily else 1.0
@@ -309,5 +316,6 @@ def _performance_stats(daily: pd.DataFrame, prefix: str, label: str) -> dict[str
         "vol": vol,
         "max_drawdown": drawdown.min(),
         "sharpe": sharpe,
+        "sortino": sortino,
         "avg_pct_invested": exposure,
     }
