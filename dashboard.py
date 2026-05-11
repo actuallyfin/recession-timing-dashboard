@@ -483,15 +483,15 @@ def render_indicator_rows(current: pd.DataFrame) -> str:
     return "\n".join(
         f"""
         <tr>
-          <td><a href="{html.escape(row.source_url)}">{html.escape(row.name)}</a></td>
-          <td>{html.escape(indicator_rule_text(row))}</td>
-          <td class="num">{html.escape(row.data_through)}</td>
-          <td class="num">{html.escape(row.available_date)}</td>
-          <td class="num">{html.escape(row.next_update)}</td>
-          <td class="num">{format_reading(row)}</td>
-          <td class="num">{format_threshold(row)}</td>
-          <td class="num">{num(row.signal_score, 1)}</td>
-          <td><span class="pill {html.escape(row.status_class)}">{html.escape(row.status_text)}</span></td>
+          <td data-label="Indicator"><a href="{html.escape(row.source_url)}">{html.escape(row.name)}</a></td>
+          <td data-label="Rule">{html.escape(indicator_rule_text(row))}</td>
+          <td data-label="Data Through" class="num">{html.escape(row.data_through)}</td>
+          <td data-label="Available" class="num">{html.escape(row.available_date)}</td>
+          <td data-label="Next Update" class="num">{html.escape(row.next_update)}</td>
+          <td data-label="Latest" class="num">{format_reading(row)}</td>
+          <td data-label="Threshold" class="num">{format_threshold(row)}</td>
+          <td data-label="Score" class="num">{num(row.signal_score, 1)}</td>
+          <td data-label="Status"><span class="pill {html.escape(row.status_class)}">{html.escape(row.status_text)}</span></td>
         </tr>
         """
         for row in current.itertuples(index=False)
@@ -502,15 +502,15 @@ def render_stat_rows(stats: pd.DataFrame) -> str:
     return "\n".join(
         f"""
         <tr>
-          <td>{html.escape(row.strategy)}</td>
-          <td class="num">{html.escape(row.start)}</td>
-          <td class="num">{html.escape(row.end)}</td>
-          <td class="num">{money(row.final_equity, 0)}</td>
-          <td class="num">{pct(row.cagr, 1)}</td>
-          <td class="num">{pct(row.vol, 1)}</td>
-          <td class="num">{num(row.sharpe, 2)}</td>
-          <td class="num">{pct(row.max_drawdown, 1)}</td>
-          <td class="num">{pct(row.avg_pct_invested, 1)}</td>
+          <td data-label="Strategy">{html.escape(row.strategy)}</td>
+          <td data-label="Start" class="num">{html.escape(row.start)}</td>
+          <td data-label="End" class="num">{html.escape(row.end)}</td>
+          <td data-label="Final Equity" class="num">{money(row.final_equity, 0)}</td>
+          <td data-label="CAGR" class="num">{pct(row.cagr, 1)}</td>
+          <td data-label="Vol" class="num">{pct(row.vol, 1)}</td>
+          <td data-label="Sharpe" class="num">{num(row.sharpe, 2)}</td>
+          <td data-label="Max DD" class="num">{pct(row.max_drawdown, 1)}</td>
+          <td data-label="Avg % Invested" class="num">{pct(row.avg_pct_invested, 1)}</td>
         </tr>
         """
         for row in stats.itertuples(index=False)
@@ -522,12 +522,12 @@ def render_recent_rows(monthly: pd.DataFrame) -> str:
     return "\n".join(
         f"""
         <tr>
-          <td>{idx.strftime('%Y-%m')}</td>
-          <td class="num">{num(row.signal_score, 1)}</td>
-          <td>{yes_no(bool(row.timing_on))}</td>
-          <td>{'Invested' if row.combined_invested else 'Defensive'}</td>
-          <td class="num">{num(row.Close, 2)}</td>
-          <td class="num">{num(row.sma_200, 2)}</td>
+          <td data-label="Month">{idx.strftime('%Y-%m')}</td>
+          <td data-label="Signal Score" class="num">{num(row.signal_score, 1)}</td>
+          <td data-label="Timing On">{yes_no(bool(row.timing_on))}</td>
+          <td data-label="Position">{'Invested' if row.combined_invested else 'Defensive'}</td>
+          <td data-label="Equity Proxy" class="num">{num(row.Close, 2)}</td>
+          <td data-label="200D SMA" class="num">{num(row.sma_200, 2)}</td>
         </tr>
         """
         for idx, row in recent.iterrows()
@@ -899,6 +899,7 @@ def render_html(
       font-size: 24px;
       line-height: 1.15;
       font-weight: 760;
+      overflow-wrap: anywhere;
     }}
     .sub {{
       margin-top: 7px;
@@ -1232,6 +1233,7 @@ def render_html(
       font-size: 24px;
       line-height: 1.15;
       font-weight: 760;
+      overflow-wrap: anywhere;
     }}
     .sub {{
       margin-top: 7px;
@@ -1250,6 +1252,15 @@ def render_html(
       width: 100%;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
+    }}
+    .chart svg {{
+      display: block;
+      width: 100%;
+      min-width: 760px;
+      height: auto;
+    }}
+    #signal-chart svg {{
+      min-width: 680px;
     }}
     table {{
       width: 100%;
@@ -1325,13 +1336,143 @@ def render_html(
     }}
     @media (max-width: 900px) {{
       .status {{
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+      .metric.primary {{
+        grid-column: 1 / -1;
       }}
       .wrap {{
-        padding: 16px;
+        padding: 18px;
       }}
       h1 {{
         font-size: 24px;
+      }}
+    }}
+    @media (max-width: 640px) {{
+      .wrap {{
+        padding: 14px;
+      }}
+      h1 {{
+        font-size: 23px;
+      }}
+      h2 {{
+        font-size: 16px;
+      }}
+      p {{
+        font-size: 14px;
+      }}
+      .strategy-control {{
+        display: block;
+      }}
+      .strategy-control label {{
+        display: block;
+        margin-bottom: 6px;
+      }}
+      select {{
+        width: 100%;
+        min-width: 0;
+        min-height: 44px;
+        font-size: 14px;
+      }}
+      .status {{
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }}
+      .metric {{
+        min-height: 0;
+        padding: 14px;
+      }}
+      .value {{
+        font-size: 21px;
+      }}
+      main.wrap {{
+        gap: 14px;
+      }}
+      section {{
+        padding: 14px;
+      }}
+      .chart-controls {{
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }}
+      .chart-toggle {{
+        min-height: 38px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        white-space: normal;
+      }}
+      .chart {{
+        margin: 0 -2px;
+        padding-bottom: 4px;
+      }}
+      .chart svg {{
+        min-width: 700px;
+      }}
+      #signal-chart svg {{
+        min-width: 640px;
+      }}
+      .table-scroll {{
+        overflow-x: visible;
+      }}
+      .responsive-table,
+      .responsive-table thead,
+      .responsive-table tbody,
+      .responsive-table tr,
+      .responsive-table td {{
+        display: block;
+        width: 100%;
+      }}
+      .responsive-table thead {{
+        display: none;
+      }}
+      .responsive-table tr {{
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        background: #fff;
+      }}
+      .responsive-table tr:last-child {{
+        margin-bottom: 0;
+      }}
+      .responsive-table td {{
+        display: grid;
+        grid-template-columns: minmax(104px, 42%) minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--line);
+        text-align: right;
+      }}
+      .responsive-table td:last-child {{
+        border-bottom: 0;
+      }}
+      .responsive-table td::before {{
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.25;
+        text-transform: uppercase;
+        font-weight: 740;
+        text-align: left;
+      }}
+      .responsive-table td[data-label="Indicator"],
+      .responsive-table td[data-label="Rule"],
+      .responsive-table td[data-label="Strategy"] {{
+        grid-template-columns: 1fr;
+        gap: 5px;
+        text-align: left;
+      }}
+      .responsive-table .num {{
+        text-align: right;
+      }}
+      .current-indicators table {{
+        font-size: 13px;
+      }}
+      .current-indicators td:nth-child(2) {{
+        min-width: 0;
       }}
     }}
   </style>
@@ -1377,7 +1518,7 @@ def render_html(
   <main class="wrap">
     <section class="current-indicators">
       <h2>Current Economic Indicators</h2>
-      <table>
+      <table class="responsive-table">
         <thead><tr><th>Indicator</th><th>Rule</th><th class="num">Data Through</th><th class="num">Available</th><th class="num">Next Update</th><th class="num">Latest</th><th class="num">Threshold</th><th class="num">Score</th><th>Status</th></tr></thead>
         <tbody id="indicator-rows">{default_payload["indicatorRows"]}</tbody>
       </table>
@@ -1385,7 +1526,7 @@ def render_html(
     <section>
       <h2>Performance Summary</h2>
       <div class="table-scroll">
-        <table>
+        <table class="responsive-table">
           <thead><tr><th>Strategy</th><th class="num">Start</th><th class="num">End</th><th class="num">Final Equity</th><th class="num">CAGR</th><th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Max DD</th><th class="num">Avg % Invested</th></tr></thead>
           <tbody id="stat-rows">{default_payload["statRows"]}</tbody>
         </table>
@@ -1407,7 +1548,7 @@ def render_html(
     </section>
     <section>
       <h2>Recent Monthly Signal</h2>
-      <table>
+      <table class="responsive-table">
         <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">Equity Proxy</th><th class="num">200D SMA</th></tr></thead>
         <tbody id="recent-rows">{default_payload["recentRows"]}</tbody>
       </table>
