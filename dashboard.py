@@ -133,7 +133,7 @@ def format_threshold(row: object) -> str:
 def indicator_rule_text(row: object) -> str:
     rule = str(row.rule)
     if row.key == "unemployment" and not pd.isna(row.current_threshold):
-        return f"{rule}; current 12-month average threshold: {row.current_threshold:.2f}%"
+        return f"{rule}; current threshold: {row.current_threshold:.2f}%"
     return rule
 
 

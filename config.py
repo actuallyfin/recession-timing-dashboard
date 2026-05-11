@@ -33,7 +33,7 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         threshold=0.0,
         direction="above",
         signal_score=2.0,
-        display="UNRATE above its 12-month average",
+        display="Rate above its 12-month average",
         source_url="https://fred.stlouisfed.org/series/UNRATE",
     ),
     IndicatorRule(
