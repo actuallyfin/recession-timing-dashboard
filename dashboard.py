@@ -240,12 +240,12 @@ def build_rules_html(spec: dict[str, object]) -> str:
       <ol class="rules">
         <li>Stay invested by default.</li>
         <li>Turn timing on when the selected indicators sum to a score of at least {float(spec["trigger_score"]):g}.</li>
-        <li>When timing is on, hold the U.S. equity proxy only when price is above its 200-day simple moving average.</li>
+        <li>When timing is on, hold the SPY ETF/Proxy only when price is above its 200-day simple moving average.</li>
         <li>When timing is off, ignore the SMA rule and remain invested.</li>
       </ol>
       <p class="note">Indicators used by this strategy (links to FRED):</p>
       <ul class="rules">{used_list}</ul>
-      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The equity proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the 200-day SMA is available.</p>
+      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The SPY ETF/Proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the 200-day SMA is available.</p>
     """
 
 
@@ -562,7 +562,7 @@ def render_recent_rows(monthly: pd.DataFrame) -> str:
           <td data-label="Signal Score" class="num">{num(row.signal_score, 1)}</td>
           <td data-label="Timing On">{yes_no(bool(row.timing_on))}</td>
           <td data-label="Position">{'Invested' if row.combined_invested else 'Defensive'}</td>
-          <td data-label="Equity Proxy" class="num">{num(row.Close, 2)}</td>
+          <td data-label="SPY ETF/Proxy" class="num">{num(row.Close, 2)}</td>
           <td data-label="200D SMA" class="num">{num(row.sma_200, 2)}</td>
         </tr>
         """
@@ -781,12 +781,12 @@ def current_action(summary: dict[str, object]) -> dict[str, str]:
     if summary["trend_above_sma"]:
         return {
             "headline": "Timing is ON, trend is positive",
-            "detail": "Strategy remains invested while the equity proxy is above its 200-day moving average.",
+            "detail": "Strategy remains invested while the SPY ETF/Proxy is above its 200-day moving average.",
             "class": "watch",
         }
     return {
         "headline": "Timing is ON, trend is negative",
-        "detail": "Strategy is defensive because the equity proxy is below its 200-day moving average.",
+        "detail": "Strategy is defensive because the SPY ETF/Proxy is below its 200-day moving average.",
         "class": "risk",
     }
 
@@ -1081,7 +1081,7 @@ def render_html(
           <div class="sub">As of {summary["latest_price_date"]}</div>
         </div>
         <div class="metric">
-          <div class="label">Equity Proxy vs 200D SMA</div>
+          <div class="label">SPY ETF/Proxy vs 200D SMA</div>
           <div class="value">{'Above' if summary["trend_above_sma"] else 'Below'}</div>
           <div class="sub">{num(summary["spy_close"], 2)} vs {num(summary["spy_sma_200"], 2)}</div>
         </div>
@@ -1116,12 +1116,12 @@ def render_html(
       <ol class="rules">
         <li>Stay invested by default.</li>
         <li>Turn timing on when tripped indicators sum to a score of at least {TIMING_ON_TRIGGER_SCORE:g}.</li>
-        <li>When timing is on, hold the U.S. equity proxy only when price is above its 200-day simple moving average.</li>
+        <li>When timing is on, hold the SPY ETF/Proxy only when price is above its 200-day simple moving average.</li>
         <li>When timing is off, ignore the SMA rule and remain invested.</li>
       </ol>
       <p class="note">Indicator thresholds used in this first pass:</p>
       <ul class="rules">{rules}</ul>
-      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The equity proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the 200-day SMA is available.</p>
+      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The SPY ETF/Proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the 200-day SMA is available.</p>
     </section>
     <section>
       <h2>Growth of $10,000 (Log Scale)</h2>
@@ -1134,7 +1134,7 @@ def render_html(
     <section>
       <h2>Recent Monthly Signal</h2>
       <table>
-        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">Equity Proxy</th><th class="num">200D SMA</th></tr></thead>
+        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">SPY ETF/Proxy</th><th class="num">200D SMA</th></tr></thead>
         <tbody>{recent_rows}</tbody>
       </table>
     </section>
@@ -1567,7 +1567,7 @@ def render_html(
           <div id="position-sub" class="sub">As of {summary["latestPriceDate"]}</div>
         </div>
         <div class="metric">
-          <div class="label">Equity Proxy vs 200D SMA</div>
+          <div class="label">SPY ETF/Proxy vs 200D SMA</div>
           <div id="trend-value" class="value">{'Above' if summary["trendAboveSma"] else 'Below'}</div>
           <div id="trend-sub" class="sub">{summary["spyClose"]} vs {summary["spySma200"]}</div>
         </div>
@@ -1613,7 +1613,7 @@ def render_html(
     <section>
       <h2>Recent Monthly Signal</h2>
       <table class="responsive-table">
-        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">Equity Proxy</th><th class="num">200D SMA</th></tr></thead>
+        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">SPY ETF/Proxy</th><th class="num">200D SMA</th></tr></thead>
         <tbody id="recent-rows">{default_payload["recentRows"]}</tbody>
       </table>
     </section>
