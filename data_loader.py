@@ -37,6 +37,7 @@ FRED_RELEASE_DATES_API = (
     "&include_release_dates_with_no_data=true&limit=1000&sort_order=desc"
 )
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={start}&period2={end}&interval=1d&events=history&includeAdjustedClose=true"
+MARKET_CLOSE_BUFFER = (16, 10)
 
 
 SP500_TOTAL_RETURNS = {
@@ -387,7 +388,20 @@ def load_yahoo_prices(symbol: str, refresh: bool = False, start_date: str = "199
     )
     frame = frame[~frame.index.duplicated(keep="last")].sort_index()
     frame["Close"] = pd.to_numeric(frame["Close"], errors="coerce")
-    return frame.dropna(subset=["Close"])
+    frame["Unadjusted Close"] = pd.to_numeric(frame["Unadjusted Close"], errors="coerce")
+    frame = frame.dropna(subset=["Close"])
+    return _drop_incomplete_current_session(frame)
+
+
+def _drop_incomplete_current_session(
+    frame: pd.DataFrame, now: pd.Timestamp | None = None
+) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    now = now if now is not None else pd.Timestamp.now(tz="America/New_York")
+    if frame.index[-1].date() == now.date() and (now.hour, now.minute) < MARKET_CLOSE_BUFFER:
+        return frame.iloc[:-1]
+    return frame
 
 
 def load_cash_level(daily_index: pd.DatetimeIndex, refresh: bool = False) -> pd.Series:
