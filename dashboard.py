@@ -120,6 +120,25 @@ def build_next_update_dates(result: dict[str, object], refresh: bool = False) ->
     return next_updates
 
 
+def last_update_check_text() -> str:
+    return pd.Timestamp.now(tz="America/Chicago").strftime("%Y-%m-%d %I:%M %p CT")
+
+
+def next_macro_release_date_text(next_update_dates: dict[str, str]) -> str:
+    parsed_dates: list[tuple[pd.Timestamp, str]] = []
+    for value in next_update_dates.values():
+        date_text = str(value).replace("Est. ", "").strip()
+        date = pd.to_datetime(date_text, errors="coerce")
+        if pd.notna(date):
+            parsed_dates.append((pd.Timestamp(date), str(value)))
+    if not parsed_dates:
+        return "n/a"
+
+    today = pd.Timestamp.now(tz="America/Chicago").normalize().tz_localize(None)
+    future_dates = [item for item in parsed_dates if item[0] >= today]
+    return min(future_dates or parsed_dates, key=lambda item: item[0])[1]
+
+
 def build_current_rows_for_variant(
     result: dict[str, object],
     spec: dict[str, object],
@@ -674,8 +693,15 @@ def build_dashboard(refresh: bool = False) -> Path:
     variants = [build_variant_result(result, spec, next_update_dates) for spec in variant_specs]
     default_variant = variants[0]
     comparison_stats = build_comparison_stats(variants)
+    macro_update_meta = {
+        "lastUpdateCheck": last_update_check_text(),
+        "nextMacroReleaseDate": next_macro_release_date_text(next_update_dates),
+    }
     default_payload = render_variant_payload(default_variant)
     variant_payloads = {variant["summary"]["key"]: render_variant_payload(variant) for variant in variants}
+    default_payload["summary"].update(macro_update_meta)
+    for payload in variant_payloads.values():
+        payload["summary"].update(macro_update_meta)
     default_chart_keys = {"actuallyfinance_gtt"}
     chart_series = growth_chart_series(variants)
     chart_keys = [str(spec["key"]) for spec in variant_specs] + ["benchmark_sma", "benchmark_buy_hold"]
@@ -1242,6 +1268,39 @@ def render_html(
       color: var(--muted);
       font-size: 13px;
     }}
+    .macro-dates {{
+      min-width: 0;
+    }}
+    .macro-date-list {{
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }}
+    .macro-date-row {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: baseline;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }}
+    .macro-date-row:first-child {{
+      padding-top: 0;
+      border-top: 0;
+    }}
+    .macro-date-label {{
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+    }}
+    .macro-date-value {{
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 760;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      white-space: nowrap;
+    }}
     main.wrap {{
       display: grid;
       gap: 18px;
@@ -1400,6 +1459,14 @@ def render_html(
       .value {{
         font-size: 21px;
       }}
+      .macro-date-row {{
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }}
+      .macro-date-value {{
+        text-align: left;
+        white-space: normal;
+      }}
       main.wrap {{
         gap: 14px;
       }}
@@ -1522,10 +1589,22 @@ def render_html(
           <div id="trend-value" class="value">{'Above' if summary["trendAboveSma"] else 'Below'}</div>
           <div class="sub">As of <a id="trend-date" href="{spy_source_url(summary["latestPriceDate"])}">{summary["latestPriceDate"]}</a>: <span id="trend-sub">{summary["spyClose"]} vs {summary["spySma200"]}</span></div>
         </div>
-        <div class="metric">
-          <div class="label">Macro Data Date</div>
-          <div id="macro-date" class="value">{summary["latestMacroReleaseDate"]}</div>
-          <div class="sub">Latest macro release date in the snapshot</div>
+        <div class="metric macro-dates">
+          <div class="label">Macro Data Updates</div>
+          <div class="macro-date-list">
+            <div class="macro-date-row">
+              <span class="macro-date-label">Latest macro data release date</span>
+              <span id="macro-latest-release" class="macro-date-value">{summary["latestMacroReleaseDate"]}</span>
+            </div>
+            <div class="macro-date-row">
+              <span class="macro-date-label">Last check for updates</span>
+              <span id="macro-last-check" class="macro-date-value">{summary["lastUpdateCheck"]}</span>
+            </div>
+            <div class="macro-date-row">
+              <span class="macro-date-label">Next macro data release date</span>
+              <span id="macro-next-release" class="macro-date-value">{summary["nextMacroReleaseDate"]}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1612,7 +1691,9 @@ def render_html(
       document.getElementById("trend-date").textContent = summary.latestPriceDate;
       document.getElementById("trend-date").href = summary.priceSourceUrl;
       document.getElementById("trend-sub").textContent = summary.spyClose + " vs " + summary.spySma200;
-      document.getElementById("macro-date").textContent = summary.latestMacroReleaseDate;
+      document.getElementById("macro-latest-release").textContent = summary.latestMacroReleaseDate;
+      document.getElementById("macro-last-check").textContent = summary.lastUpdateCheck;
+      document.getElementById("macro-next-release").textContent = summary.nextMacroReleaseDate;
       document.getElementById("indicator-rows").innerHTML = strategy.indicatorRows;
       updatePerformanceSelection(key);
       document.getElementById("rules-html").innerHTML = strategy.rulesHtml;
