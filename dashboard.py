@@ -702,7 +702,7 @@ def build_dashboard(refresh: bool = False) -> Path:
     default_payload["summary"].update(macro_update_meta)
     for payload in variant_payloads.values():
         payload["summary"].update(macro_update_meta)
-    default_chart_keys = {"actuallyfinance_gtt"}
+    default_chart_keys = {"actuallyfinance_gtt", "benchmark_sma", "benchmark_buy_hold"}
     chart_series = growth_chart_series(variants)
     chart_keys = [str(spec["key"]) for spec in variant_specs] + ["benchmark_sma", "benchmark_buy_hold"]
     growth_chart = svg_multi_growth_chart(chart_series, default_chart_keys)
