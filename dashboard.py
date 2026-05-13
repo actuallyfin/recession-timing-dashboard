@@ -15,6 +15,7 @@ from strategy import _performance_stats, build_strategy
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT_DIR = ROOT / "output"
+SPY_SOURCE_URL = "https://finance.yahoo.com/quote/SPY/history/"
 
 
 COLORS = {
@@ -108,6 +109,23 @@ def money(value: float, digits: int = 0) -> str:
 
 def yes_no(value: bool) -> str:
     return "Yes" if value else "No"
+
+
+def spy_source_url(date_text: object) -> str:
+    date = pd.Timestamp(str(date_text))
+    if date.tzinfo is None:
+        date = date.tz_localize("UTC")
+    else:
+        date = date.tz_convert("UTC")
+    end = date + pd.Timedelta(days=2)
+    return (
+        f"{SPY_SOURCE_URL}?period1={int(date.timestamp())}"
+        f"&period2={int(end.timestamp())}&interval=1d&filter=history&frequency=1d"
+    )
+
+
+def source_date_link(date_text: object) -> str:
+    return f'<a href="{html.escape(spy_source_url(date_text))}">{html.escape(str(date_text))}</a>'
 
 
 def format_indicator_value(value: float) -> str:
@@ -540,7 +558,7 @@ def render_stat_row(row: object, selected_key: str | None = None) -> str:
         <tr{class_attr} data-strategy-key="{row_key}" data-row-kind="{row_kind}">
           <td data-label="Strategy">{html.escape(row.strategy)}</td>
           <td data-label="Start" class="num">{html.escape(row.start)}</td>
-          <td data-label="End" class="num">{html.escape(row.end)}</td>
+          <td data-label="End" class="num">{source_date_link(row.end)}</td>
           <td data-label="Final Equity" class="num">{money(row.final_equity, 0)}</td>
           <td data-label="CAGR" class="num">{pct(row.cagr, 1)}</td>
           <td data-label="Vol" class="num">{pct(row.vol, 1)}</td>
@@ -588,6 +606,7 @@ def render_variant_payload(variant: dict[str, object]) -> dict[str, object]:
             "signalScore": num(summary["signal_score"], 1),
             "triggerScore": num(summary["trigger_score"], 1),
             "latestPriceDate": summary["latest_price_date"],
+            "priceSourceUrl": spy_source_url(summary["latest_price_date"]),
             "latestMacroReleaseDate": summary["latest_macro_release_date"],
             "spyClose": num(summary["spy_close"], 2),
             "spySma200": num(summary["spy_sma_200"], 2),
@@ -1078,12 +1097,12 @@ def render_html(
         <div class="metric">
           <div class="label">Strategy Position</div>
           <div class="value">{'Invested' if summary["combined_invested"] else 'Defensive'}</div>
-          <div class="sub">As of {summary["latest_price_date"]}</div>
+          <div class="sub">As of {source_date_link(summary["latest_price_date"])}</div>
         </div>
         <div class="metric">
           <div class="label">SPY ETF/Proxy vs 200D SMA</div>
           <div class="value">{'Above' if summary["trend_above_sma"] else 'Below'}</div>
-          <div class="sub">{num(summary["spy_close"], 2)} vs {num(summary["spy_sma_200"], 2)}</div>
+          <div class="sub">As of {source_date_link(summary["latest_price_date"])}: {num(summary["spy_close"], 2)} vs {num(summary["spy_sma_200"], 2)}</div>
         </div>
         <div class="metric">
           <div class="label">Macro Data Date</div>
@@ -1564,12 +1583,12 @@ def render_html(
         <div class="metric">
           <div class="label">Strategy Position</div>
           <div id="position-value" class="value">{'Invested' if summary["combinedInvested"] else 'Defensive'}</div>
-          <div id="position-sub" class="sub">As of {summary["latestPriceDate"]}</div>
+          <div class="sub">As of <a id="position-date" href="{spy_source_url(summary["latestPriceDate"])}">{summary["latestPriceDate"]}</a></div>
         </div>
         <div class="metric">
           <div class="label">SPY ETF/Proxy vs 200D SMA</div>
           <div id="trend-value" class="value">{'Above' if summary["trendAboveSma"] else 'Below'}</div>
-          <div id="trend-sub" class="sub">{summary["spyClose"]} vs {summary["spySma200"]}</div>
+          <div class="sub">As of <a id="trend-date" href="{spy_source_url(summary["latestPriceDate"])}">{summary["latestPriceDate"]}</a>: <span id="trend-sub">{summary["spyClose"]} vs {summary["spySma200"]}</span></div>
         </div>
         <div class="metric">
           <div class="label">Macro Data Date</div>
@@ -1655,8 +1674,11 @@ def render_html(
       document.getElementById("trip-value").textContent = summary.tripCount + " / " + summary.indicatorCount;
       document.getElementById("trip-sub").textContent = "Score " + summary.signalScore + " / trigger " + summary.triggerScore;
       document.getElementById("position-value").textContent = summary.combinedInvested ? "Invested" : "Defensive";
-      document.getElementById("position-sub").textContent = "As of " + summary.latestPriceDate;
+      document.getElementById("position-date").textContent = summary.latestPriceDate;
+      document.getElementById("position-date").href = summary.priceSourceUrl;
       document.getElementById("trend-value").textContent = summary.trendAboveSma ? "Above" : "Below";
+      document.getElementById("trend-date").textContent = summary.latestPriceDate;
+      document.getElementById("trend-date").href = summary.priceSourceUrl;
       document.getElementById("trend-sub").textContent = summary.spyClose + " vs " + summary.spySma200;
       document.getElementById("macro-date").textContent = summary.latestMacroReleaseDate;
       document.getElementById("indicator-rows").innerHTML = strategy.indicatorRows;
