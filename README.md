@@ -7,6 +7,8 @@ Static Python rebuild of the spreadsheet model. This is a separate project folde
 - `config.py`: indicator rules and timing trigger settings
 
 For a fuller map of how the scripts work together, see `docs/project_guide.md`.
+For the live-site boundaries that research work should avoid changing by
+accident, see `docs/current_site_contract.md`.
 
 ## Strategy
 
@@ -21,7 +23,9 @@ production, real income, and housing starts at `signal_score=1.0`. Timing turns
 on when the selected indicator scores reach `TIMING_ON_TRIGGER_SCORE=2.0`.
 To test "1+ trigger," set `TIMING_ON_TRIGGER_SCORE=1.0`; for "3+ triggers,"
 set it to `3.0`. To make an indicator count double or half, edit that
-indicator's `signal_score` or the strategy score map in `dashboard.py`.
+indicator's `signal_score` or the published strategy score map in
+`published_strategies.py`. For research-only tests, prefer adding a script under
+`research/` instead of editing the live dashboard strategy definitions.
 
 ## Run
 

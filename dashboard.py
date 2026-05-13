@@ -8,9 +8,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from config import INDICATORS, TIMING_ON_TRIGGER_SCORE
+from config import INDICATORS
 from data_loader import next_fred_release_date
 from market_data import source_history_url
+from published_strategies import strategy_variant_specs
 from strategy import _performance_stats, build_strategy
 
 
@@ -28,66 +29,6 @@ COLORS = {
     "red": "#c2410c",
     "green": "#15803d",
 }
-
-
-def strategy_variant_specs() -> list[dict[str, object]]:
-    actuallyfinance_scores = {
-        rule.key: rule.signal_score
-        for rule in INDICATORS
-        if rule.key != "employment"
-    }
-    return [
-        {
-            "key": "actuallyfinance_gtt",
-            "label": "ActuallyFinance GTT",
-            "description": "Score-based economic gate. UNRATE counts as 2; retail sales, industrial production, real income, and housing starts count as 1; timing turns on at score 2.",
-            "scores": actuallyfinance_scores,
-            "trigger_score": TIMING_ON_TRIGGER_SCORE,
-        },
-        {
-            "key": "pe_gtt_1_retail_sales",
-            "label": "Philosophical Economics GTT #1: Retail Sales",
-            "description": "Timing turns on when real retail sales YoY growth is below 0%.",
-            "scores": {"retail_sales": 1.0},
-            "trigger_score": 1.0,
-        },
-        {
-            "key": "pe_gtt_2_industrial_production",
-            "label": "Philosophical Economics GTT #2: Industrial Production",
-            "description": "Timing turns on when industrial production YoY growth is below 0%.",
-            "scores": {"industrial_production": 1.0},
-            "trigger_score": 1.0,
-        },
-        {
-            "key": "pe_gtt_3_retail_or_industrial",
-            "label": "Philosophical Economics GTT #3: Retail Sales or Industrial Production",
-            "description": "Timing turns on when either real retail sales or industrial production YoY growth is below 0%.",
-            "scores": {"retail_sales": 1.0, "industrial_production": 1.0},
-            "trigger_score": 1.0,
-        },
-        {
-            "key": "pe_gtt_4_employment",
-            "label": "Philosophical Economics GTT #4: Employment Growth",
-            "description": "Timing turns on when payroll employment YoY growth is below 0%.",
-            "scores": {"employment": 1.0},
-            "trigger_score": 1.0,
-        },
-        {
-            "key": "pe_gtt_5_income_or_housing",
-            "label": "Philosophical Economics GTT #5: Real Income or Housing Starts",
-            "description": "Timing turns on when real personal income YoY growth is below 3% or housing starts YoY growth is below -10%.",
-            "scores": {"real_income": 1.0, "housing_starts": 1.0},
-            "trigger_score": 1.0,
-        },
-        {
-            "key": "pe_gtt_6_unrate",
-            "label": "Philosophical Economics GTT #6: UNRATE Trend",
-            "description": "Timing turns on when UNRATE is above its 12-month average.",
-            "scores": {"unemployment": 1.0},
-            "trigger_score": 1.0,
-        },
-    ]
-
 
 def pct(value: float, digits: int = 1) -> str:
     if pd.isna(value):
