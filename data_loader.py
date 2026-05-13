@@ -307,21 +307,39 @@ def load_us_equity_prices(refresh: bool = False) -> pd.DataFrame:
     spy_start = pd.Timestamp(SPY_FIRST_TRADING_DATE)
     post_spy = spy.loc[spy.index >= spy_start, ["Close", "Unadjusted Close", "Volume"]].copy()
     official_tr = load_yahoo_prices("^SP500TR", refresh=refresh, start_date="1988-01-01")
-    official_tr = official_tr.loc[official_tr.index < spy_start, ["Close", "Unadjusted Close", "Volume"]]
+    official_tr = official_tr[["Close", "Unadjusted Close", "Volume"]]
     synthetic = _load_pre_spy_total_return_proxy(refresh=refresh)
-    synthetic = synthetic.loc[synthetic.index < official_tr.index[0]]
+
+    if not official_tr.empty and not post_spy.empty:
+        official_tr = _scale_to_anchor(
+            official_tr, spy_start, float(post_spy["Close"].iloc[0])
+        )
+
     if not synthetic.empty and not official_tr.empty:
-        synthetic_scale = official_tr["Close"].iloc[0] / synthetic["Close"].iloc[-1]
-        synthetic["Close"] = synthetic["Close"] * synthetic_scale
+        first_official_date = official_tr.index[0]
+        synthetic = _scale_to_anchor(
+            synthetic, first_official_date, float(official_tr["Close"].iloc[0])
+        )
+        synthetic = synthetic.loc[synthetic.index < first_official_date]
+
+    official_tr = official_tr.loc[official_tr.index < spy_start]
+
     pre_spy = pd.concat([synthetic, official_tr]).sort_index()
     if pre_spy.empty:
         return post_spy
-    scale = post_spy["Close"].iloc[0] / pre_spy["Close"].iloc[-1]
-    pre_spy["Close"] = pre_spy["Close"] * scale
     pre_spy["Unadjusted Close"] = pre_spy["Close"]
     pre_spy["Volume"] = np.nan
     stitched = pd.concat([pre_spy, post_spy]).sort_index()
     return stitched[~stitched.index.duplicated(keep="last")]
+
+
+def _scale_to_anchor(frame: pd.DataFrame, anchor_date: pd.Timestamp, anchor_value: float) -> pd.DataFrame:
+    anchor_rows = frame.loc[frame.index <= anchor_date]
+    if frame.empty or anchor_rows.empty:
+        return frame.copy()
+    scaled = frame.copy()
+    scaled["Close"] = scaled["Close"] * (anchor_value / float(anchor_rows["Close"].iloc[-1]))
+    return scaled
 
 
 def _load_pre_spy_total_return_proxy(refresh: bool = False) -> pd.DataFrame:
