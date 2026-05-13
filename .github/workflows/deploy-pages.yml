@@ -5,7 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "30 13 * * 1-5"
+    # After the 4:10pm ET completed-bar buffer in data_loader.py.
+    - cron: "20 21 * * 1-5"
 
 permissions:
   contents: read
