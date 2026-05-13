@@ -5,24 +5,35 @@ This repo is the active home for the recession timing dashboard. It is separate 
 ## Main Flow
 
 1. `dashboard.py` is the entry point.
-2. It calls `strategy.py` to build each strategy variant and benchmark.
-3. `strategy.py` calls `data_loader.py` for macro data, equity total-return data, and cash returns.
-4. `data_loader.py` uses `market_data.py` for shared market-data utilities.
-5. `dashboard.py` writes the static site files to `output/`.
-6. GitHub Actions runs the same build daily and publishes `output/` to GitHub Pages.
+2. It reads the live strategy list from `published_strategies.py`.
+3. It calls `strategy.py` to build each strategy variant and benchmark.
+4. `strategy.py` calls `data_loader.py` for macro data, equity total-return data, and cash returns.
+5. `data_loader.py` uses `market_data.py` for shared market-data utilities.
+6. `dashboard.py` writes the static site files to `output/`.
+7. GitHub Actions runs the same build daily and publishes `output/` to GitHub Pages.
 
 ## Scripts And Modules
 
 ### `dashboard.py`
 
-Builds the web dashboard as static HTML, CSS, and JavaScript. It defines the visible strategy variants, prepares the current-signal summary, builds the performance table and charts, and writes the final files into `output/`.
+Builds the web dashboard as static HTML, CSS, and JavaScript. It prepares the current-signal summary, builds the performance table and charts, and writes the final files into `output/`.
 
 Important responsibilities:
 
-- Defines the dashboard strategy menu, including `ActuallyFinance GTT` and the Philosophical Economics GTT variations.
+- Reads the dashboard strategy menu from `published_strategies.py`.
 - Renders current signal tiles, indicator tables, rule summaries, performance tables, and growth charts.
 - Creates source links for dated SPY observations through the shared Yahoo Finance helper.
 - Accepts `--refresh` to force fresh data downloads before rebuilding.
+
+### `published_strategies.py`
+
+Defines the strategy variants that appear on the live dashboard. This file is the intentional promotion point for strategies that should be visible on the published site.
+
+Important responsibilities:
+
+- Keeps `ActuallyFinance GTT` as the default strategy.
+- Defines the Philosophical Economics GTT comparison variants.
+- Stores per-strategy score maps and trigger scores used by `dashboard.py`.
 
 ### `strategy.py`
 
@@ -86,6 +97,14 @@ Builds and deploys the dashboard through GitHub Actions. It installs Python depe
 
 Reference notes from one-off research and backtest comparisons. These are not part of the dashboard build, but they preserve useful decisions and exploratory results.
 
+### `research/`
+
+Research-only scripts and templates. The live dashboard does not import files from this folder. Use it for score sweeps, alternate indicator sets, timing-delay tests, or other experiments that should not change the published site.
+
+### `tests/`
+
+Small dependency-free smoke tests. `tests/test_published_contract.py` checks that the published strategy list and default strategy contract have not changed accidentally.
+
 ### `data/raw/`
 
 Local cache for downloaded raw data. This folder is ignored by git because the dashboard can refresh it from the source APIs.
@@ -114,6 +133,7 @@ For future recession timing or related backtests:
 - Add generic market data utilities to `market_data.py`.
 - Add project-specific macro, cash, or stitched-index loaders to `data_loader.py`.
 - Add strategy logic and metrics to `strategy.py`.
-- Add visible strategy variants and presentation changes to `dashboard.py`.
+- Add research-only strategy variants to `research/`.
+- Add visible strategy variants to `published_strategies.py`.
+- Add presentation changes to `dashboard.py`.
 - Keep CAPE country rotation helpers in their own project unless a helper is truly generic enough to copy into a shared package later.
-
