@@ -6,11 +6,13 @@ Static Python rebuild of the spreadsheet model. This is a separate project folde
 - `output/`: generated dashboard and CSV snapshots
 - `config.py`: indicator rules and timing trigger settings
 
+For a fuller map of how the scripts work together, see `docs/project_guide.md`.
+
 ## Strategy
 
 1. Buy and hold by default.
 2. Economic timing turns on when tripped indicators sum to the configured trigger score.
-3. When timing is on, hold the U.S. equity total-return proxy only when it is above its 200-day simple moving average.
+3. When timing is on, hold the SPY ETF/proxy total-return series only when it is above its 200-day simple moving average.
 4. Compare against a 200-day SMA strategy that is always active and against buy-and-hold.
 
 The default ActuallyFinance GTT strategy excludes employment growth from scoring,
