@@ -121,7 +121,7 @@ def build_next_update_dates(result: dict[str, object], refresh: bool = False) ->
 
 
 def last_update_check_text() -> str:
-    return pd.Timestamp.now(tz="America/Chicago").strftime("%Y-%m-%d %I:%M %p CT")
+    return pd.Timestamp.now(tz="America/Chicago").strftime("%Y-%m-%d")
 
 
 def next_macro_release_date_text(next_update_dates: dict[str, str]) -> str:
@@ -1602,15 +1602,15 @@ def render_html(
           <div class="label">Macro Data Updates</div>
           <div class="macro-date-list">
             <div class="macro-date-row">
-              <span class="macro-date-label">Latest macro data release date</span>
+              <span class="macro-date-label">Latest release</span>
               <span id="macro-latest-release" class="macro-date-value">{summary["latestMacroReleaseDate"]}</span>
             </div>
             <div class="macro-date-row">
-              <span class="macro-date-label">Last check for updates</span>
+              <span class="macro-date-label">Last check</span>
               <span id="macro-last-check" class="macro-date-value">{summary["lastUpdateCheck"]}</span>
             </div>
             <div class="macro-date-row">
-              <span class="macro-date-label">Next macro data release date</span>
+              <span class="macro-date-label">Next release</span>
               <span id="macro-next-release" class="macro-date-value">{summary["nextMacroReleaseDate"]}</span>
             </div>
           </div>
