@@ -1498,6 +1498,11 @@ def render_html(
       .table-scroll {{
         overflow-x: visible;
       }}
+      .table-scroll table,
+      .responsive-table {{
+        min-width: 0;
+        max-width: 100%;
+      }}
       .responsive-table,
       .responsive-table thead,
       .responsive-table tbody,
@@ -1515,6 +1520,8 @@ def render_html(
         padding: 10px 12px;
         margin-bottom: 10px;
         background: #fff;
+        max-width: 100%;
+        overflow: hidden;
       }}
       .responsive-table tr:last-child {{
         margin-bottom: 0;
@@ -1527,6 +1534,8 @@ def render_html(
         padding: 8px 0;
         border-bottom: 1px solid var(--line);
         text-align: right;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }}
       .responsive-table td:last-child {{
         border-bottom: 0;
