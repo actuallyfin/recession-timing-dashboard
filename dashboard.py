@@ -10,12 +10,12 @@ import pandas as pd
 
 from config import INDICATORS, TIMING_ON_TRIGGER_SCORE
 from data_loader import next_fred_release_date
+from market_data import source_history_url
 from strategy import _performance_stats, build_strategy
 
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT_DIR = ROOT / "output"
-SPY_SOURCE_URL = "https://finance.yahoo.com/quote/SPY/history/"
 
 
 COLORS = {
@@ -112,16 +112,7 @@ def yes_no(value: bool) -> str:
 
 
 def spy_source_url(date_text: object) -> str:
-    date = pd.Timestamp(str(date_text))
-    if date.tzinfo is None:
-        date = date.tz_localize("UTC")
-    else:
-        date = date.tz_convert("UTC")
-    end = date + pd.Timedelta(days=2)
-    return (
-        f"{SPY_SOURCE_URL}?period1={int(date.timestamp())}"
-        f"&period2={int(end.timestamp())}&interval=1d&filter=history&frequency=1d"
-    )
+    return source_history_url("SPY", date_text)
 
 
 def source_date_link(date_text: object) -> str:

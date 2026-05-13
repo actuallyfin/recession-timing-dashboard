@@ -3,15 +3,18 @@ from __future__ import annotations
 import io
 import json
 import os
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from config import SPY_FIRST_TRADING_DATE, SPY_INCEPTION_EXPENSE_RATIO, START_DATE
+from market_data import (
+    DEFAULT_MARKET_CLOSE_BUFFER,
+    load_yahoo_prices as load_yahoo_adjusted_prices,
+    read_cached_or_download,
+    scale_to_anchor,
+)
 
 
 RAW_DIR = Path(__file__).resolve().parent / "data" / "raw"
@@ -36,8 +39,6 @@ FRED_RELEASE_DATES_API = (
     "release_id={release_id}&api_key={api_key}&file_type=json"
     "&include_release_dates_with_no_data=true&limit=1000&sort_order=desc"
 )
-YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={start}&period2={end}&interval=1d&events=history&includeAdjustedClose=true"
-MARKET_CLOSE_BUFFER = (16, 10)
 
 
 SP500_TOTAL_RETURNS = {
@@ -80,31 +81,8 @@ SP500_TOTAL_RETURNS = {
 }
 
 
-def _download_text(url: str, timeout: int = 90) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    last_error: Exception | None = None
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.read().decode("utf-8")
-        except (TimeoutError, urllib.error.URLError) as error:
-            last_error = error
-            time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"Could not download {url}") from last_error
-
-
 def _read_cached_or_download(path: Path, url: str, refresh: bool) -> str:
-    if path.exists() and not refresh:
-        return path.read_text(encoding="utf-8")
-    try:
-        text = _download_text(url)
-    except RuntimeError:
-        if path.exists():
-            return path.read_text(encoding="utf-8")
-        raise
-    path.write_text(text, encoding="utf-8")
-    time.sleep(0.2)
-    return text
+    return read_cached_or_download(path, url, refresh)
 
 
 def load_fred_series(series: str, refresh: bool = False) -> pd.Series:
@@ -311,13 +289,13 @@ def load_us_equity_prices(refresh: bool = False) -> pd.DataFrame:
     synthetic = _load_pre_spy_total_return_proxy(refresh=refresh)
 
     if not official_tr.empty and not post_spy.empty:
-        official_tr = _scale_to_anchor(
+        official_tr = scale_to_anchor(
             official_tr, spy_start, float(post_spy["Close"].iloc[0])
         )
 
     if not synthetic.empty and not official_tr.empty:
         first_official_date = official_tr.index[0]
-        synthetic = _scale_to_anchor(
+        synthetic = scale_to_anchor(
             synthetic, first_official_date, float(official_tr["Close"].iloc[0])
         )
         synthetic = synthetic.loc[synthetic.index < first_official_date]
@@ -331,15 +309,6 @@ def load_us_equity_prices(refresh: bool = False) -> pd.DataFrame:
     pre_spy["Volume"] = np.nan
     stitched = pd.concat([pre_spy, post_spy]).sort_index()
     return stitched[~stitched.index.duplicated(keep="last")]
-
-
-def _scale_to_anchor(frame: pd.DataFrame, anchor_date: pd.Timestamp, anchor_value: float) -> pd.DataFrame:
-    anchor_rows = frame.loc[frame.index <= anchor_date]
-    if frame.empty or anchor_rows.empty:
-        return frame.copy()
-    scaled = frame.copy()
-    scaled["Close"] = scaled["Close"] * (anchor_value / float(anchor_rows["Close"].iloc[-1]))
-    return scaled
 
 
 def _load_pre_spy_total_return_proxy(refresh: bool = False) -> pd.DataFrame:
@@ -374,52 +343,15 @@ def _load_pre_spy_total_return_proxy(refresh: bool = False) -> pd.DataFrame:
 
 
 def load_yahoo_prices(symbol: str, refresh: bool = False, start_date: str = "1990-01-01") -> pd.DataFrame:
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    end = int((pd.Timestamp.today() + pd.Timedelta(days=1)).timestamp())
-    start = int(pd.Timestamp(start_date).timestamp())
-    safe_symbol = symbol.lower().replace("^", "").replace(".", "_")
-    cache_path = RAW_DIR / f"{safe_symbol}_yahoo_chart.json"
-    url = YAHOO_CHART.format(symbol=symbol, start=start, end=end)
-
-    try:
-        text = _read_cached_or_download(cache_path, url, refresh)
-    except (urllib.error.URLError, RuntimeError):
-        if symbol.upper() != "SPY":
-            raise
-        fallback = Path(__file__).resolve().parents[1] / "spy_daily.csv"
-        if not fallback.exists():
-            raise
-        return _load_local_yfinance_csv(fallback)
-
-    payload = json.loads(text)
-    result = payload["chart"]["result"][0]
-    timestamps = pd.to_datetime(result["timestamp"], unit="s").tz_localize("UTC").tz_convert("America/New_York").tz_localize(None).normalize()
-    quote = result["indicators"]["quote"][0]
-    adjclose = result["indicators"].get("adjclose", [{}])[0].get("adjclose", quote["close"])
-    frame = pd.DataFrame(
-        {
-            "Close": adjclose,
-            "Unadjusted Close": quote["close"],
-            "Volume": quote.get("volume"),
-        },
-        index=timestamps,
+    fallback = Path(__file__).resolve().parents[1] / "spy_daily.csv" if symbol.upper() == "SPY" else None
+    return load_yahoo_adjusted_prices(
+        symbol,
+        RAW_DIR,
+        refresh=refresh,
+        start_date=start_date,
+        fallback_csv=fallback,
+        market_close_buffer=DEFAULT_MARKET_CLOSE_BUFFER,
     )
-    frame = frame[~frame.index.duplicated(keep="last")].sort_index()
-    frame["Close"] = pd.to_numeric(frame["Close"], errors="coerce")
-    frame["Unadjusted Close"] = pd.to_numeric(frame["Unadjusted Close"], errors="coerce")
-    frame = frame.dropna(subset=["Close"])
-    return _drop_incomplete_current_session(frame)
-
-
-def _drop_incomplete_current_session(
-    frame: pd.DataFrame, now: pd.Timestamp | None = None
-) -> pd.DataFrame:
-    if frame.empty:
-        return frame
-    now = now if now is not None else pd.Timestamp.now(tz="America/New_York")
-    if frame.index[-1].date() == now.date() and (now.hour, now.minute) < MARKET_CLOSE_BUFFER:
-        return frame.iloc[:-1]
-    return frame
 
 
 def load_cash_level(daily_index: pd.DatetimeIndex, refresh: bool = False) -> pd.Series:
@@ -470,12 +402,3 @@ def cash_returns_on(index: pd.DatetimeIndex, cash_level: pd.Series | None) -> pd
         return pd.Series(0.0, index=index)
     level = cash_level.reindex(index.union(cash_level.index)).sort_index().ffill().reindex(index)
     return level.pct_change(fill_method=None).fillna(0.0)
-
-
-def _load_local_yfinance_csv(path: Path) -> pd.DataFrame:
-    frame = pd.read_csv(path, skiprows=[1, 2])
-    frame = frame.rename(columns={frame.columns[0]: "Date"})
-    frame["Date"] = pd.to_datetime(frame["Date"])
-    close_col = "Close"
-    frame[close_col] = pd.to_numeric(frame[close_col], errors="coerce")
-    return frame.sort_values("Date").set_index("Date")[[close_col]].dropna().loc[START_DATE:]
