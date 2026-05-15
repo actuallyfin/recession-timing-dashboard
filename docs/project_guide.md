@@ -6,11 +6,12 @@ This repo is the active home for the recession timing dashboard. It is separate 
 
 1. `dashboard.py` is the entry point.
 2. It reads the live strategy list from `published_strategies.py`.
-3. It calls `strategy.py` to build each strategy variant and benchmark.
+3. It calls `strategy.py` to build each daily 200-day strategy variant and benchmark.
 4. `strategy.py` calls `data_loader.py` for macro data, equity total-return data, and cash returns.
 5. `data_loader.py` uses `market_data.py` for shared market-data utilities.
-6. `dashboard.py` writes the static site files to `output/`.
-7. GitHub Actions runs the same build daily and publishes `output/` to GitHub Pages.
+6. `dashboard.py` derives the monthly 10-month moving-average variant payloads from the same daily source data.
+7. `dashboard.py` writes the static site files to `output/`.
+8. GitHub Actions runs the same build daily and publishes `output/` to GitHub Pages.
 
 ## Scripts And Modules
 
@@ -22,6 +23,7 @@ Important responsibilities:
 
 - Reads the dashboard strategy menu from `published_strategies.py`.
 - Renders current signal tiles, indicator tables, rule summaries, performance tables, and growth charts.
+- Builds the page-level trend-rule selector for daily 200-day SMA mode and monthly 10-month moving-average mode.
 - Creates source links for dated SPY observations through the shared Yahoo Finance helper.
 - Accepts `--refresh` to force fresh data downloads before rebuilding.
 
@@ -37,7 +39,7 @@ Important responsibilities:
 
 ### `strategy.py`
 
-Contains the backtesting engine and strategy calculations. It combines daily SPY ETF/proxy total-return data, cash returns, economic indicator signals, and the 200-day SMA trend rule.
+Contains the backtesting engine and strategy calculations for the daily 200-day SMA production mode. It combines daily SPY ETF/proxy total-return data, cash returns, economic indicator signals, and the 200-day SMA trend rule.
 
 Important responsibilities:
 
@@ -45,6 +47,8 @@ Important responsibilities:
 - Applies the timing gate and the 200-day SMA trend-following rule.
 - Calculates daily strategy returns, benchmark returns, drawdowns, Sharpe ratio, Sortino ratio, CAGR, and percent invested.
 - Produces the structures that `dashboard.py` renders.
+
+The monthly 10-month moving-average mode is assembled in `dashboard.py` from the same daily source output. It resamples completed months, uses month-end prices, compounds cash monthly, shifts the selected month-end trend position forward one month, and calculates monthly performance metrics.
 
 ### `data_loader.py`
 
@@ -54,6 +58,7 @@ Important responsibilities:
 
 - Downloads FRED series and FRED vintage/revision data when a `FRED_API_KEY` is available.
 - Builds the hybrid daily macro dataset used by the strategy.
+- Builds the article-style retail sales splice used by production backtests: discontinued `RSALES` history chained into scaled modern `RRSFS`.
 - Builds the extended U.S. equity total-return series:
   - SPY adjusted close after SPY inception.
   - Yahoo `^SP500TR` linked to SPY for the official pre-SPY total-return period.

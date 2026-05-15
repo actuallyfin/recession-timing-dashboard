@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from config import INDICATORS
+from config import INDICATORS, INITIAL_INVESTMENT
 from data_loader import next_fred_release_date
 from market_data import source_history_url
 from published_strategies import strategy_variant_specs
@@ -17,6 +17,25 @@ from strategy import _performance_stats, build_strategy
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT_DIR = ROOT / "output"
+
+TREND_MODES = {
+    "200d": {
+        "label": "200D SMA",
+        "control_label": "200-day SMA (daily)",
+        "tile_label": "SPY ETF vs 200D SMA",
+        "rule_text": "200-day simple moving average, checked daily",
+        "recent_header": "200D SMA",
+        "stats_note": "Stats are computed from daily returns. Idle capital earns the cash proxy return; Sharpe and Sortino are calculated on excess returns over that same cash series.",
+    },
+    "10m": {
+        "label": "10M MA",
+        "control_label": "10-month MA (monthly)",
+        "tile_label": "SPY ETF vs 10M MA",
+        "rule_text": "10-month moving average, checked at month-end",
+        "recent_header": "10M MA",
+        "stats_note": "Stats are computed from monthly returns. The trend signal updates at month-end; idle capital earns the compounded monthly cash proxy return. Sharpe and Sortino are calculated on excess returns over cash.",
+    },
+}
 
 
 COLORS = {
@@ -196,7 +215,7 @@ def build_current_rows_for_variant(
     return pd.DataFrame(current_rows)
 
 
-def build_rules_html(spec: dict[str, object]) -> str:
+def build_rules_html(spec: dict[str, object], trend_rule_text: str) -> str:
     scores = spec["scores"]
     used_rules = [rule for rule in INDICATORS if rule.key in scores]
     used_list = "\n".join(
@@ -209,12 +228,12 @@ def build_rules_html(spec: dict[str, object]) -> str:
       <ol class="rules">
         <li>Stay invested by default.</li>
         <li>Turn timing on when the selected indicators sum to a score of at least {float(spec["trigger_score"]):g}.</li>
-        <li>When timing is on, hold the SPY ETF only when price is above its 200-day simple moving average.</li>
-        <li>When timing is off, ignore the SMA rule and remain invested.</li>
+        <li>When timing is on, hold the SPY ETF only when price is above its {html.escape(trend_rule_text)}.</li>
+        <li>When timing is off, ignore the moving-average rule and remain invested.</li>
       </ol>
       <p class="note">Indicators used by this strategy (links to FRED):</p>
       <ul class="rules">{used_list}</ul>
-      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The SPY ETF/Proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the 200-day SMA is available.</p>
+      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The SPY ETF/Proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the selected moving average is available.</p>
     """
 
 
@@ -383,7 +402,8 @@ def build_variant_result(
     daily = daily.join(timing_daily)
     daily[["trip_count", "signal_score"]] = daily[["trip_count", "signal_score"]].fillna(0)
     daily["timing_on"] = daily["timing_on"].fillna(False).astype(bool)
-    daily["combined_invested"] = (~daily["timing_on"]) | daily["trend_above_sma"]
+    daily["trend_above_sma"] = daily["trend_above_sma"].fillna(False).astype(bool)
+    daily["combined_invested"] = ((~daily["timing_on"]) | daily["trend_above_sma"]).astype(bool)
     combined_position = daily["combined_invested"].shift(1).fillna(True).astype(bool)
     daily["combined_return"] = daily["daily_return"].where(combined_position, daily["cash_return"])
     daily["combined_equity"] = (1 + daily["combined_return"]).cumprod()
@@ -408,6 +428,7 @@ def build_variant_result(
             "buy_hold_growth_10k",
         ]
     ].dropna(subset=["Close"])
+    monthly["trend_level"] = monthly["sma_200"]
 
     latest_date = daily.dropna(subset=["Close"]).index[-1]
     latest = daily.loc[latest_date]
@@ -429,6 +450,9 @@ def build_variant_result(
         "max_score": float(sum(float(value) for value in scores.values())),
         "spy_close": float(latest["Close"]),
         "spy_sma_200": float(latest["sma_200"]) if not pd.isna(latest["sma_200"]) else np.nan,
+        "trend_rule_label": TREND_MODES["200d"]["label"],
+        "trend_rule_text": TREND_MODES["200d"]["rule_text"],
+        "trend_tile_label": TREND_MODES["200d"]["tile_label"],
     }
     stats = pd.DataFrame(
         [
@@ -440,7 +464,175 @@ def build_variant_result(
     current = build_current_rows_for_variant(result, spec, next_update_dates)
     return {
         "spec": spec,
+        "mode": "200d",
         "daily": daily,
+        "monthly": monthly,
+        "summary": summary,
+        "stats": stats,
+        "current_indicators": current,
+    }
+
+
+def performance_stats_from_returns(
+    returns: pd.Series,
+    equity: pd.Series,
+    cash_returns: pd.Series,
+    invested: pd.Series,
+    label: str,
+    periods_per_year: int,
+) -> dict[str, float | str]:
+    returns = returns.dropna()
+    equity = equity.reindex(returns.index).dropna()
+    cash_returns = cash_returns.reindex(returns.index).fillna(0.0)
+    invested = invested.reindex(returns.index).fillna(False).astype(bool)
+    years = (returns.index[-1] - returns.index[0]).days / 365.25
+    total_return = equity.iloc[-1] / equity.iloc[0] - 1
+    cagr = equity.iloc[-1] ** (1 / years) - 1 if years > 0 else np.nan
+    vol = returns.std() * np.sqrt(periods_per_year)
+    excess_returns = returns - cash_returns
+    sharpe = (
+        excess_returns.mean() / excess_returns.std() * np.sqrt(periods_per_year)
+        if excess_returns.std() and not np.isnan(excess_returns.std())
+        else np.nan
+    )
+    downside_returns = excess_returns.clip(upper=0)
+    downside_deviation = np.sqrt((downside_returns**2).mean())
+    sortino = (
+        excess_returns.mean() / downside_deviation * np.sqrt(periods_per_year)
+        if downside_deviation and not np.isnan(downside_deviation)
+        else np.nan
+    )
+    drawdown = equity / equity.cummax() - 1
+    return {
+        "start": returns.index[0].strftime("%Y-%m-%d"),
+        "end": returns.index[-1].strftime("%Y-%m-%d"),
+        "strategy": label,
+        "final_equity": equity.iloc[-1] * INITIAL_INVESTMENT,
+        "total_return": total_return,
+        "cagr": cagr,
+        "vol": vol,
+        "max_drawdown": drawdown.min(),
+        "sharpe": sharpe,
+        "sortino": sortino,
+        "avg_pct_invested": invested.mean(),
+    }
+
+
+def build_monthly_variant_result(
+    result: dict[str, object],
+    spec: dict[str, object],
+    next_update_dates: dict[str, str],
+) -> dict[str, object]:
+    scores = spec["scores"]
+    trigger_score = float(spec["trigger_score"])
+    daily = result["daily"][["Close", "cash_return"]].copy()
+    source_dates = daily["Close"].dropna().resample("ME").apply(lambda values: values.index[-1])
+    monthly = pd.DataFrame(
+        {
+            "Close": daily["Close"].resample("ME").last(),
+            "cash_return": (1 + daily["cash_return"]).resample("ME").prod() - 1,
+            "source_date": source_dates,
+        }
+    ).dropna(subset=["Close"])
+    latest_daily_date = daily.dropna(subset=["Close"]).index[-1]
+    monthly = monthly.loc[monthly.index.to_period("M") < latest_daily_date.to_period("M")].copy()
+    monthly["monthly_return"] = monthly["Close"].pct_change(fill_method=None).fillna(0.0)
+    monthly["ma_10m"] = monthly["Close"].rolling(10, min_periods=10).mean()
+    first_valid_ma = monthly["ma_10m"].first_valid_index()
+    if first_valid_ma is None:
+        raise RuntimeError("Price history is too short to compute a 10-month moving average.")
+    monthly = monthly.loc[first_valid_ma:].copy()
+    monthly.loc[monthly.index[0], ["monthly_return", "cash_return"]] = 0.0
+    monthly["trend_above_sma"] = (monthly["Close"] > monthly["ma_10m"]).fillna(False).astype(bool)
+    monthly["always_timing_invested"] = monthly["trend_above_sma"]
+    monthly["buy_hold_invested"] = True
+
+    indicator_trips = result["indicator_trips"]
+    score = score_series_for_variant(indicator_trips, scores)
+    trip_count = trip_count_for_variant(indicator_trips, scores)
+    timing = pd.DataFrame(
+        {
+            "trip_count": trip_count,
+            "signal_score": score,
+            "timing_on": score >= trigger_score,
+        }
+    )
+    timing_monthly = timing.reindex(monthly.index, method="ffill")
+    monthly = monthly.join(timing_monthly)
+    monthly[["trip_count", "signal_score"]] = monthly[["trip_count", "signal_score"]].fillna(0)
+    monthly["timing_on"] = monthly["timing_on"].fillna(False).astype(bool)
+    monthly["combined_invested"] = ((~monthly["timing_on"]) | monthly["trend_above_sma"]).astype(bool)
+
+    combined_position = monthly["combined_invested"].shift(1).fillna(True).astype(bool)
+    always_position = monthly["always_timing_invested"].shift(1).fillna(False).astype(bool)
+    monthly["combined_return"] = monthly["monthly_return"].where(combined_position, monthly["cash_return"])
+    monthly["always_timing_return"] = monthly["monthly_return"].where(always_position, monthly["cash_return"])
+    monthly["buy_hold_return"] = monthly["monthly_return"]
+    monthly["combined_equity"] = (1 + monthly["combined_return"]).cumprod()
+    monthly["always_timing_equity"] = (1 + monthly["always_timing_return"]).cumprod()
+    monthly["buy_hold_equity"] = (1 + monthly["buy_hold_return"]).cumprod()
+    monthly["combined_growth_10k"] = INITIAL_INVESTMENT * monthly["combined_equity"]
+    monthly["always_timing_growth_10k"] = INITIAL_INVESTMENT * monthly["always_timing_equity"]
+    monthly["buy_hold_growth_10k"] = INITIAL_INVESTMENT * monthly["buy_hold_equity"]
+    monthly["trend_level"] = monthly["ma_10m"]
+
+    latest_date = monthly.dropna(subset=["Close"]).index[-1]
+    latest = monthly.loc[latest_date]
+    latest_indicator_date = result["indicator_values"].dropna(how="all").index[-1]
+    summary = {
+        "key": spec["key"],
+        "label": spec["label"],
+        "description": spec["description"],
+        "latest_price_date": pd.Timestamp(latest["source_date"]).strftime("%Y-%m-%d"),
+        "latest_indicator_date": latest_indicator_date.strftime("%Y-%m-%d"),
+        "latest_macro_release_date": latest_indicator_date.strftime("%Y-%m-%d"),
+        "timing_on": bool(latest["timing_on"]),
+        "trend_above_sma": bool(latest["trend_above_sma"]),
+        "combined_invested": bool(latest["combined_invested"]),
+        "trip_count": int(latest["trip_count"]),
+        "indicator_count": len(scores),
+        "signal_score": float(latest["signal_score"]),
+        "trigger_score": trigger_score,
+        "max_score": float(sum(float(value) for value in scores.values())),
+        "spy_close": float(latest["Close"]),
+        "spy_sma_200": float(latest["ma_10m"]) if not pd.isna(latest["ma_10m"]) else np.nan,
+        "trend_rule_label": TREND_MODES["10m"]["label"],
+        "trend_rule_text": TREND_MODES["10m"]["rule_text"],
+        "trend_tile_label": TREND_MODES["10m"]["tile_label"],
+    }
+    stats = pd.DataFrame(
+        [
+            performance_stats_from_returns(
+                monthly["combined_return"],
+                monthly["combined_equity"],
+                monthly["cash_return"],
+                monthly["combined_invested"],
+                str(spec["label"]),
+                12,
+            ),
+            performance_stats_from_returns(
+                monthly["always_timing_return"],
+                monthly["always_timing_equity"],
+                monthly["cash_return"],
+                monthly["always_timing_invested"],
+                "10M MA always on",
+                12,
+            ),
+            performance_stats_from_returns(
+                monthly["buy_hold_return"],
+                monthly["buy_hold_equity"],
+                monthly["cash_return"],
+                monthly["buy_hold_invested"],
+                "Buy and hold",
+                12,
+            ),
+        ]
+    )
+    current = build_current_rows_for_variant(result, spec, next_update_dates)
+    return {
+        "spec": spec,
+        "mode": "10m",
+        "daily": monthly,
         "monthly": monthly,
         "summary": summary,
         "stats": stats,
@@ -478,6 +670,7 @@ def build_comparison_stats(variants: list[dict[str, object]]) -> pd.DataFrame:
     benchmarks = variants[0]["stats"].iloc[1:].copy()
     benchmark_keys = {
         "200D SMA always on": "benchmark_sma",
+        "10M MA always on": "benchmark_sma",
         "Buy and hold": "benchmark_buy_hold",
     }
     for _, row in benchmarks.iterrows():
@@ -532,7 +725,7 @@ def render_recent_rows(monthly: pd.DataFrame) -> str:
           <td data-label="Timing On">{yes_no(bool(row.timing_on))}</td>
           <td data-label="Position">{'Invested' if row.combined_invested else 'Defensive'}</td>
           <td data-label="SPY ETF" class="num">{num(row.Close, 2)}</td>
-          <td data-label="200D SMA" class="num">{num(row.sma_200, 2)}</td>
+          <td data-label="Trend MA" class="num">{num(row.trend_level, 2)}</td>
         </tr>
         """
         for idx, row in recent.iterrows()
@@ -543,6 +736,7 @@ def render_variant_payload(variant: dict[str, object]) -> dict[str, object]:
     summary = variant["summary"]
     monthly = variant["monthly"]
     action = current_action(summary)
+    mode_meta = TREND_MODES[str(variant["mode"])]
     return {
         "key": summary["key"],
         "label": summary["label"],
@@ -552,6 +746,8 @@ def render_variant_payload(variant: dict[str, object]) -> dict[str, object]:
             "timingOn": summary["timing_on"],
             "combinedInvested": summary["combined_invested"],
             "trendAboveSma": summary["trend_above_sma"],
+            "trendTileLabel": summary["trend_tile_label"],
+            "trendRuleLabel": summary["trend_rule_label"],
             "tripCount": summary["trip_count"],
             "indicatorCount": summary["indicator_count"],
             "signalScore": num(summary["signal_score"], 1),
@@ -561,10 +757,12 @@ def render_variant_payload(variant: dict[str, object]) -> dict[str, object]:
             "latestMacroReleaseDate": summary["latest_macro_release_date"],
             "spyClose": num(summary["spy_close"], 2),
             "spySma200": num(summary["spy_sma_200"], 2),
+            "recentTrendHeader": mode_meta["recent_header"],
+            "statsNote": mode_meta["stats_note"],
         },
         "indicatorRows": render_indicator_rows(variant["current_indicators"]),
         "recentRows": render_recent_rows(monthly),
-        "rulesHtml": build_rules_html(variant["spec"]),
+        "rulesHtml": build_rules_html(variant["spec"], summary["trend_rule_text"]),
         "equityChart": svg_line_chart(
             monthly,
             ["combined_growth_10k", "always_timing_growth_10k", "buy_hold_growth_10k"],
@@ -668,16 +866,17 @@ def svg_multi_growth_chart(series_map: dict[str, pd.Series], default_checked: se
     return "".join(parts)
 
 
-def render_growth_controls(series_keys: list[str], default_checked: set[str]) -> str:
+def render_growth_controls(series_keys: list[str], default_checked: set[str], trend_label: str) -> str:
     controls = []
     for key in series_keys:
         checked = " checked" if key in default_checked else ""
+        label = trend_label if key == "benchmark_sma" else SHORT_CHART_LABELS[key]
         controls.append(
             f"""
             <label class="chart-toggle">
               <input type="checkbox" data-series="{html.escape(key)}"{checked}>
               <span class="swatch" style="background:{CHART_COLORS[key]}"></span>
-              <span>{html.escape(SHORT_CHART_LABELS[key])}</span>
+              <span>{html.escape(label)}</span>
             </label>
             """
         )
@@ -690,46 +889,77 @@ def build_dashboard(refresh: bool = False) -> Path:
 
     variant_specs = strategy_variant_specs()
     next_update_dates = build_next_update_dates(result, refresh=refresh)
-    variants = [build_variant_result(result, spec, next_update_dates) for spec in variant_specs]
-    default_variant = variants[0]
-    comparison_stats = build_comparison_stats(variants)
     macro_update_meta = {
         "lastUpdateCheck": last_update_check_text(),
         "nextMacroReleaseDate": next_macro_release_date_text(next_update_dates),
     }
-    default_payload = render_variant_payload(default_variant)
-    variant_payloads = {variant["summary"]["key"]: render_variant_payload(variant) for variant in variants}
-    default_payload["summary"].update(macro_update_meta)
-    for payload in variant_payloads.values():
-        payload["summary"].update(macro_update_meta)
+    mode_variants = {
+        "200d": [build_variant_result(result, spec, next_update_dates) for spec in variant_specs],
+        "10m": [build_monthly_variant_result(result, spec, next_update_dates) for spec in variant_specs],
+    }
     default_chart_keys = {"actuallyfinance_gtt", "benchmark_sma", "benchmark_buy_hold"}
-    chart_series = growth_chart_series(variants)
     chart_keys = [str(spec["key"]) for spec in variant_specs] + ["benchmark_sma", "benchmark_buy_hold"]
-    growth_chart = svg_multi_growth_chart(chart_series, default_chart_keys)
-    growth_controls = render_growth_controls(chart_keys, default_chart_keys)
+
+    mode_payloads = {}
+    mode_stats = {}
+    for mode_key, variants in mode_variants.items():
+        comparison_stats = build_comparison_stats(variants)
+        mode_stats[mode_key] = comparison_stats
+        variant_payloads = {
+            str(variant["summary"]["key"]): render_variant_payload(variant)
+            for variant in variants
+        }
+        for payload in variant_payloads.values():
+            payload["summary"].update(macro_update_meta)
+        chart_series = growth_chart_series(variants)
+        mode_payloads[mode_key] = {
+            "label": TREND_MODES[mode_key]["control_label"],
+            "strategies": variant_payloads,
+            "statRows": render_stat_rows(comparison_stats, str(variants[0]["summary"]["key"])),
+            "growthChart": svg_multi_growth_chart(chart_series, default_chart_keys),
+            "growthControls": render_growth_controls(
+                chart_keys,
+                default_chart_keys,
+                TREND_MODES[mode_key]["label"],
+            ),
+            "statsNote": TREND_MODES[mode_key]["stats_note"],
+        }
+
+    default_variant = mode_variants["200d"][0]
+    default_payload = mode_payloads["200d"]["strategies"][str(default_variant["summary"]["key"])]
 
     default_variant["daily"].to_csv(OUTPUT_DIR / "daily_strategy.csv")
     default_variant["monthly"].to_csv(OUTPUT_DIR / "monthly_signal.csv")
+    mode_variants["10m"][0]["monthly"].to_csv(OUTPUT_DIR / "monthly_signal_10m.csv")
     default_variant["current_indicators"].to_csv(OUTPUT_DIR / "current_indicators.csv", index=False)
-    comparison_stats.to_csv(OUTPUT_DIR / "performance_summary.csv", index=False)
+    mode_stats["200d"].to_csv(OUTPUT_DIR / "performance_summary.csv", index=False)
+    mode_stats["10m"].to_csv(OUTPUT_DIR / "performance_summary_10m.csv", index=False)
     (OUTPUT_DIR / "summary.json").write_text(json.dumps(default_variant["summary"], indent=2), encoding="utf-8")
     all_variant_stats = []
-    for variant in variants:
-        stats = variant["stats"].copy()
-        stats.insert(0, "variant_key", variant["summary"]["key"])
-        stats.insert(1, "variant_label", variant["summary"]["label"])
-        all_variant_stats.append(stats)
+    for mode_key, variants in mode_variants.items():
+        for variant in variants:
+            stats = variant["stats"].copy()
+            stats.insert(0, "trend_mode", mode_key)
+            stats.insert(1, "variant_key", variant["summary"]["key"])
+            stats.insert(2, "variant_label", variant["summary"]["label"])
+            all_variant_stats.append(stats)
     pd.concat(all_variant_stats, ignore_index=True).to_csv(
         OUTPUT_DIR / "strategy_variant_performance.csv", index=False
     )
 
     json_payload = {
-        key: {
-            "label": value["label"],
-            "description": value["description"],
-            "summary": value["summary"],
+        mode_key: {
+            "label": payload["label"],
+            "strategies": {
+                key: {
+                    "label": value["label"],
+                    "description": value["description"],
+                    "summary": value["summary"],
+                }
+                for key, value in payload["strategies"].items()
+            },
         }
-        for key, value in variant_payloads.items()
+        for mode_key, payload in mode_payloads.items()
     }
     (OUTPUT_DIR / "strategy_variants.json").write_text(
         json.dumps(json_payload, indent=2), encoding="utf-8"
@@ -737,11 +967,8 @@ def build_dashboard(refresh: bool = False) -> Path:
 
     html_text = render_html(
         variant_specs,
-        variant_payloads,
+        mode_payloads,
         default_payload,
-        growth_chart,
-        growth_controls,
-        render_stat_rows(comparison_stats, str(default_variant["summary"]["key"])),
     )
     output_path = OUTPUT_DIR / "index.html"
     output_path.write_text(html_text, encoding="utf-8")
@@ -749,6 +976,7 @@ def build_dashboard(refresh: bool = False) -> Path:
 
 
 def current_action(summary: dict[str, object]) -> dict[str, str]:
+    trend_rule = str(summary.get("trend_rule_text", "moving average"))
     if not summary["timing_on"]:
         return {
             "headline": "Timing is OFF",
@@ -758,384 +986,32 @@ def current_action(summary: dict[str, object]) -> dict[str, str]:
     if summary["trend_above_sma"]:
         return {
             "headline": "Timing is ON, trend is positive",
-            "detail": "Strategy remains invested while the SPY ETF is above its 200-day moving average.",
+            "detail": f"Strategy remains invested while the SPY ETF is above its {trend_rule}.",
             "class": "watch",
         }
     return {
         "headline": "Timing is ON, trend is negative",
-        "detail": "Strategy is defensive because the SPY ETF is below its 200-day moving average.",
+        "detail": f"Strategy is defensive because the SPY ETF is below its {trend_rule}.",
         "class": "risk",
     }
 
 
 def render_html(
-    summary: dict[str, object],
-    action: dict[str, str],
-    current: pd.DataFrame,
-    stats: pd.DataFrame,
-    monthly: pd.DataFrame,
-    equity_chart: str,
-    signal_chart: str,
-) -> str:
-    indicator_rows = "\n".join(
-        f"""
-        <tr>
-          <td><a href="{html.escape(row.source_url)}">{html.escape(row.name)}</a></td>
-          <td>{html.escape(indicator_rule_text(row))}</td>
-          <td class="num">{html.escape(row.data_through)}</td>
-          <td class="num">{html.escape(row.available_date)}</td>
-          <td class="num">{html.escape(row.next_update)}</td>
-          <td class="num">{format_reading(row)}</td>
-          <td class="num">{format_threshold(row)}</td>
-          <td class="num">{num(row.signal_score, 1)}</td>
-          <td><span class="pill {'bad' if row.tripped else 'good'}">{'Tripped' if row.tripped else 'Clear'}</span></td>
-        </tr>
-        """
-        for row in current.itertuples(index=False)
-    )
-
-    stat_rows = "\n".join(
-        f"""
-        <tr>
-          <td>{html.escape(row.strategy)}</td>
-          <td class="num">{html.escape(row.start)}</td>
-          <td class="num">{html.escape(row.end)}</td>
-          <td class="num">{money(row.final_equity, 0)}</td>
-          <td class="num">{pct(row.cagr, 1)}</td>
-          <td class="num">{pct(row.vol, 1)}</td>
-          <td class="num">{num(row.sharpe, 2)}</td>
-          <td class="num">{pct(row.max_drawdown, 1)}</td>
-          <td class="num">{pct(row.avg_pct_invested, 1)}</td>
-        </tr>
-        """
-        for row in stats.itertuples(index=False)
-    )
-
-    recent = monthly.tail(18).iloc[::-1]
-    recent_rows = "\n".join(
-        f"""
-        <tr>
-          <td>{idx.strftime('%Y-%m')}</td>
-          <td class="num">{num(row.signal_score, 1)}</td>
-          <td>{yes_no(bool(row.timing_on))}</td>
-          <td>{'Invested' if row.combined_invested else 'Defensive'}</td>
-          <td class="num">{num(row.Close, 2)}</td>
-          <td class="num">{num(row.sma_200, 2)}</td>
-        </tr>
-        """
-        for idx, row in recent.iterrows()
-    )
-
-    rules = "\n".join(
-        f"<li>{html.escape(rule.name)}: {html.escape(rule.display)}; score {rule.signal_score:g}.</li>"
-        for rule in INDICATORS
-    )
-
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Recession Timing Dashboard</title>
-  <style>
-    :root {{
-      --ink: {COLORS["ink"]};
-      --muted: {COLORS["muted"]};
-      --line: {COLORS["line"]};
-      --blue: {COLORS["blue"]};
-      --teal: {COLORS["teal"]};
-      --amber: {COLORS["amber"]};
-      --red: {COLORS["red"]};
-      --green: {COLORS["green"]};
-      --bg: #f6f8fa;
-      --panel: #ffffff;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: var(--ink);
-      background: var(--bg);
-      letter-spacing: 0;
-    }}
-    header {{
-      background: #ffffff;
-      border-bottom: 1px solid var(--line);
-    }}
-    .wrap {{
-      max-width: 1380px;
-      margin: 0 auto;
-      padding: 24px;
-    }}
-    h1 {{
-      margin: 0 0 6px;
-      font-size: 30px;
-      line-height: 1.1;
-      font-weight: 760;
-    }}
-    h2 {{
-      margin: 0 0 14px;
-      font-size: 18px;
-      line-height: 1.2;
-    }}
-    p {{
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.45;
-    }}
-    .status {{
-      display: grid;
-      grid-template-columns: minmax(0, 1.5fr) repeat(4, minmax(140px, 1fr));
-      gap: 12px;
-      margin-top: 18px;
-    }}
-    .metric, section {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }}
-    .metric {{
-      padding: 16px;
-      min-height: 104px;
-    }}
-    .metric.primary {{
-      border-color: {'#fed7aa' if action["class"] == 'watch' else '#fecaca' if action["class"] == 'risk' else '#bbf7d0'};
-      background: {'#fff7ed' if action["class"] == 'watch' else '#fff1f2' if action["class"] == 'risk' else '#f0fdf4'};
-    }}
-    .label {{
-      color: var(--muted);
-      font-size: 12px;
-      text-transform: uppercase;
-      font-weight: 700;
-    }}
-    .value {{
-      margin-top: 8px;
-      font-size: 24px;
-      line-height: 1.15;
-      font-weight: 760;
-      overflow-wrap: anywhere;
-    }}
-    .sub {{
-      margin-top: 7px;
-      color: var(--muted);
-      font-size: 13px;
-    }}
-    main.wrap {{
-      display: grid;
-      gap: 18px;
-    }}
-    section {{
-      padding: 18px;
-      overflow: hidden;
-    }}
-    .table-scroll {{
-      width: 100%;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }}
-    .chart {{
-      width: 100%;
-      overflow-x: auto;
-    }}
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }}
-    .table-scroll table {{
-      min-width: 1080px;
-    }}
-    .current-indicators table {{
-      table-layout: auto;
-      font-size: 12.5px;
-    }}
-    .current-indicators th, .current-indicators td {{
-      padding: 8px 6px;
-    }}
-    .current-indicators td:nth-child(2) {{
-      min-width: 190px;
-      white-space: normal;
-    }}
-    .current-indicators th:nth-child(3),
-    .current-indicators th:nth-child(4),
-    .current-indicators th:nth-child(5),
-    .current-indicators td:nth-child(3),
-    .current-indicators td:nth-child(4),
-    .current-indicators td:nth-child(5) {{
-      white-space: nowrap;
-    }}
-    .current-indicators .pill {{
-      min-width: 58px;
-    }}
-    th, td {{
-      padding: 10px 9px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: middle;
-    }}
-    th {{
-      color: var(--muted);
-      font-size: 12px;
-      text-transform: uppercase;
-      font-weight: 720;
-    }}
-    #stat-rows tr.muted {{
-      color: #8a94a6;
-    }}
-    #stat-rows tr.muted a {{
-      color: #8a94a6;
-    }}
-    #stat-rows tr.selected {{
-      color: var(--ink);
-      font-weight: 620;
-    }}
-    #stat-rows tr.benchmark {{
-      color: var(--ink);
-    }}
-    .num {{
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-    }}
-    a {{
-      color: var(--blue);
-      text-decoration: none;
-    }}
-    .pill {{
-      display: inline-flex;
-      align-items: center;
-      min-width: 68px;
-      justify-content: center;
-      border-radius: 999px;
-      padding: 4px 8px;
-      font-size: 12px;
-      font-weight: 720;
-    }}
-    .pill.good {{ background: #dcfce7; color: #166534; }}
-    .pill.bad {{ background: #ffedd5; color: #9a3412; }}
-    .rules {{
-      margin: 0;
-      padding-left: 20px;
-      color: var(--ink);
-      line-height: 1.55;
-    }}
-    .note {{
-      margin-top: 12px;
-      font-size: 13px;
-      color: var(--muted);
-    }}
-    @media (max-width: 900px) {{
-      .status {{
-        grid-template-columns: 1fr;
-      }}
-      .wrap {{
-        padding: 16px;
-      }}
-      h1 {{
-        font-size: 24px;
-      }}
-    }}
-  </style>
-</head>
-<body>
-  <header>
-    <div class="wrap">
-      <h1>Recession Timing Dashboard</h1>
-      <p>This dashboard provides the current inputs to a timing strategy inspired by Philosophical Economics <a href="https://www.philosophicaleconomics.com/2016/01/gtt/">Growth-Trend Timing</a> strategies. Backtested results for the strategy, and variations of the original proposed GTT strategies are also provided below. Economic indicators contribute signal scores based on the latest macro data; when the selected strategy's signal reaches its trigger, the portfolio switches from an S&P 500 buy and hold to a 200-day simple moving average rule.</p>
-      <div class="status">
-        <div class="metric primary">
-          <div class="label">Current Signal</div>
-          <div class="value">{html.escape(action["headline"])}</div>
-          <div class="sub">{html.escape(action["detail"])}</div>
-        </div>
-        <div class="metric">
-          <div class="label">Tripped Indicators</div>
-          <div class="value">{summary["trip_count"]} / {len(INDICATORS)}</div>
-          <div class="sub">Score {num(summary["signal_score"], 1)} / trigger {num(summary["trigger_score"], 1)}</div>
-        </div>
-        <div class="metric">
-          <div class="label">Strategy Position</div>
-          <div class="value">{'Invested' if summary["combined_invested"] else 'Defensive'}</div>
-          <div class="sub">As of {source_date_link(summary["latest_price_date"])}</div>
-        </div>
-        <div class="metric">
-          <div class="label">SPY ETF vs 200D SMA</div>
-          <div class="value">{'Above' if summary["trend_above_sma"] else 'Below'}</div>
-          <div class="sub">As of {source_date_link(summary["latest_price_date"])}: {num(summary["spy_close"], 2)} vs {num(summary["spy_sma_200"], 2)}</div>
-        </div>
-        <div class="metric">
-          <div class="label">Macro Data Date</div>
-          <div class="value">{summary["latest_macro_release_date"]}</div>
-          <div class="sub">Latest macro release date in the snapshot</div>
-        </div>
-      </div>
-    </div>
-  </header>
-  <main class="wrap">
-    <section class="current-indicators">
-      <h2>Current Economic Indicators</h2>
-      <table>
-        <thead><tr><th>Indicator</th><th>Rule</th><th class="num">Data Through</th><th class="num">Available</th><th class="num">Next Update</th><th class="num">Latest</th><th class="num">Threshold</th><th class="num">Score</th><th>Status</th></tr></thead>
-        <tbody>{indicator_rows}</tbody>
-      </table>
-    </section>
-    <section>
-      <h2>Performance Summary</h2>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Strategy</th><th class="num">Start</th><th class="num">End</th><th class="num">Final Equity</th><th class="num">CAGR</th><th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Max DD</th><th class="num">Avg % Invested</th></tr></thead>
-          <tbody>{stat_rows}</tbody>
-        </table>
-      </div>
-      <p class="note">Stats are computed from daily returns. Idle capital earns the cash proxy return, and Sharpe is calculated on excess returns over that same cash series. Cash uses BIL adjusted close after inception and a synthetic pre-BIL level from FRED TB3MS.</p>
-    </section>
-    <section>
-      <h2>Rules</h2>
-      <ol class="rules">
-        <li>Stay invested by default.</li>
-        <li>Turn timing on when tripped indicators sum to a score of at least {TIMING_ON_TRIGGER_SCORE:g}.</li>
-        <li>When timing is on, hold the SPY ETF only when price is above its 200-day simple moving average.</li>
-        <li>When timing is off, ignore the SMA rule and remain invested.</li>
-      </ol>
-      <p class="note">Indicator thresholds used in this first pass:</p>
-      <ul class="rules">{rules}</ul>
-      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The SPY ETF/Proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the 200-day SMA is available.</p>
-    </section>
-    <section>
-      <h2>Growth of $10,000 (Log Scale)</h2>
-      <div class="chart">{equity_chart}</div>
-    </section>
-    <section>
-      <h2>Timing Gate Through Time</h2>
-      <div class="chart">{signal_chart}</div>
-    </section>
-    <section>
-      <h2>Recent Monthly Signal</h2>
-      <table>
-        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">SPY ETF</th><th class="num">200D SMA</th></tr></thead>
-        <tbody>{recent_rows}</tbody>
-      </table>
-    </section>
-  </main>
-</body>
-</html>
-"""
-
-
-def render_html(
     variant_specs: list[dict[str, object]],
-    variant_payloads: dict[str, dict[str, object]],
+    mode_payloads: dict[str, dict[str, object]],
     default_payload: dict[str, object],
-    growth_chart: str,
-    growth_controls: str,
-    comparison_stat_rows: str,
 ) -> str:
     options = "\n".join(
         f'<option value="{html.escape(str(spec["key"]))}">{html.escape(str(spec["label"]))}</option>'
         for spec in variant_specs
     )
-    payload_json = json.dumps(variant_payloads).replace("</", "<\\/")
+    payload_json = json.dumps(mode_payloads).replace("</", "<\\/")
     action = default_payload["action"]
     summary = default_payload["summary"]
+    default_mode = "200d"
+    growth_chart = mode_payloads[default_mode]["growthChart"]
+    growth_controls = mode_payloads[default_mode]["growthControls"]
+    comparison_stat_rows = mode_payloads[default_mode]["statRows"]
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1572,10 +1448,19 @@ def render_html(
   <header>
     <div class="wrap">
       <h1>Recession Timing Dashboard</h1>
-      <p>This dashboard provides the current inputs to a timing strategy inspired by Philosophical Economics <a href="https://www.philosophicaleconomics.com/2016/01/gtt/">Growth-Trend Timing</a> strategies. Backtested results for the strategy, and variations of the original proposed GTT strategies are also provided below. Economic indicators contribute signal scores based on the latest macro data; when the selected strategy's signal reaches its trigger, the portfolio switches from an S&P 500 buy and hold to a 200-day simple moving average rule.</p>
+      <p>This dashboard provides the current inputs to a timing strategy inspired by Philosophical Economics <a href="https://www.philosophicaleconomics.com/2016/01/gtt/">Growth-Trend Timing</a> strategies. Backtested results for the strategy, and variations of the original proposed GTT strategies are also provided below. Economic indicators contribute signal scores based on the latest macro data; when the selected strategy's signal reaches its trigger, the portfolio switches from buy-and-hold to the selected moving-average trend rule.</p>
       <div class="strategy-control">
-        <label for="strategy-select">Strategy</label>
-        <select id="strategy-select">{options}</select>
+        <div>
+          <label for="strategy-select">Strategy</label>
+          <select id="strategy-select">{options}</select>
+        </div>
+        <div>
+          <label for="trend-mode-select">Trend Rule</label>
+          <select id="trend-mode-select">
+            <option value="200d">200-day SMA (daily)</option>
+            <option value="10m">10-month MA (monthly)</option>
+          </select>
+        </div>
       </div>
       <div class="status">
         <div id="current-signal-card" class="metric primary {html.escape(action["class"])}">
@@ -1594,7 +1479,7 @@ def render_html(
           <div class="sub">As of <a id="position-date" href="{spy_source_url(summary["latestPriceDate"])}">{summary["latestPriceDate"]}</a></div>
         </div>
         <div class="metric">
-          <div class="label">SPY ETF vs 200D SMA</div>
+          <div id="trend-label" class="label">{summary["trendTileLabel"]}</div>
           <div id="trend-value" class="value">{'Above' if summary["trendAboveSma"] else 'Below'}</div>
           <div class="sub">As of <a id="trend-date" href="{spy_source_url(summary["latestPriceDate"])}">{summary["latestPriceDate"]}</a>: <span id="trend-sub">{summary["spyClose"]} vs {summary["spySma200"]}</span></div>
         </div>
@@ -1634,7 +1519,7 @@ def render_html(
           <tbody id="stat-rows">{comparison_stat_rows}</tbody>
         </table>
       </div>
-      <p class="note">Stats are computed from daily returns. Idle capital earns the cash proxy return; Sharpe and Sortino are calculated on excess returns over that same cash series.</p>
+      <p id="stats-note" class="note">{html.escape(summary["statsNote"])}</p>
     </section>
     <section>
       <h2>Selected Strategy Rules</h2>
@@ -1652,23 +1537,32 @@ def render_html(
     <section>
       <h2>Recent Monthly Signal</h2>
       <table class="responsive-table">
-        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">SPY ETF</th><th class="num">200D SMA</th></tr></thead>
+        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">SPY ETF</th><th id="recent-trend-header" class="num">{summary["recentTrendHeader"]}</th></tr></thead>
         <tbody id="recent-rows">{default_payload["recentRows"]}</tbody>
       </table>
     </section>
   </main>
   <script id="strategy-data" type="application/json">{payload_json}</script>
   <script>
-    const strategies = JSON.parse(document.getElementById("strategy-data").textContent);
+    const dashboardData = JSON.parse(document.getElementById("strategy-data").textContent);
     const select = document.getElementById("strategy-select");
-    const chartInputs = Array.from(document.querySelectorAll(".chart-toggle input"));
+    const trendModeSelect = document.getElementById("trend-mode-select");
+    let renderedMode = trendModeSelect.value;
+    let chartInputs = [];
+    function currentModeData() {{
+      return dashboardData[trendModeSelect.value];
+    }}
     function updateGrowthLines() {{
       const visible = new Set(chartInputs.filter(input => input.checked).map(input => input.dataset.series));
       document.querySelectorAll(".growth-line").forEach(line => {{
         line.style.display = visible.has(line.dataset.series) ? "" : "none";
       }});
     }}
-    chartInputs.forEach(input => input.addEventListener("change", updateGrowthLines));
+    function bindChartInputs() {{
+      chartInputs = Array.from(document.querySelectorAll(".chart-toggle input"));
+      chartInputs.forEach(input => input.addEventListener("change", updateGrowthLines));
+    }}
+    bindChartInputs();
     function updatePerformanceSelection(key) {{
       document.querySelectorAll("#stat-rows tr[data-row-kind='strategy']").forEach(row => {{
         if (row.dataset.strategyKey === key) {{
@@ -1680,14 +1574,24 @@ def render_html(
         }}
       }});
     }}
-    function renderStrategy(key) {{
-      const strategy = strategies[key];
+    function renderDashboard(resetMode = false) {{
+      const key = select.value;
+      const mode = currentModeData();
+      const strategy = mode.strategies[key];
       const summary = strategy.summary;
+      if (resetMode || renderedMode !== trendModeSelect.value) {{
+        document.getElementById("stat-rows").innerHTML = mode.statRows;
+        document.getElementById("growth-controls").innerHTML = mode.growthControls;
+        document.getElementById("equity-chart").innerHTML = mode.growthChart;
+        document.getElementById("stats-note").textContent = mode.statsNote;
+        renderedMode = trendModeSelect.value;
+        bindChartInputs();
+      }}
       const selectedChartInput = document.querySelector('.chart-toggle input[data-series="' + key + '"]');
       if (selectedChartInput && !selectedChartInput.checked) {{
         selectedChartInput.checked = true;
-        updateGrowthLines();
       }}
+      updateGrowthLines();
       document.getElementById("current-signal-card").className = "metric primary " + strategy.action.class;
       document.getElementById("current-headline").textContent = strategy.action.headline;
       document.getElementById("current-detail").textContent = strategy.action.detail;
@@ -1696,6 +1600,7 @@ def render_html(
       document.getElementById("position-value").textContent = summary.combinedInvested ? "Invested" : "Defensive";
       document.getElementById("position-date").textContent = summary.latestPriceDate;
       document.getElementById("position-date").href = summary.priceSourceUrl;
+      document.getElementById("trend-label").textContent = summary.trendTileLabel;
       document.getElementById("trend-value").textContent = summary.trendAboveSma ? "Above" : "Below";
       document.getElementById("trend-date").textContent = summary.latestPriceDate;
       document.getElementById("trend-date").href = summary.priceSourceUrl;
@@ -1707,9 +1612,11 @@ def render_html(
       updatePerformanceSelection(key);
       document.getElementById("rules-html").innerHTML = strategy.rulesHtml;
       document.getElementById("signal-chart").innerHTML = strategy.signalChart;
+      document.getElementById("recent-trend-header").textContent = summary.recentTrendHeader;
       document.getElementById("recent-rows").innerHTML = strategy.recentRows;
     }}
-    select.addEventListener("change", event => renderStrategy(event.target.value));
+    select.addEventListener("change", () => renderDashboard(false));
+    trendModeSelect.addEventListener("change", () => renderDashboard(true));
   </script>
 </body>
 </html>

@@ -42,14 +42,14 @@ def strategy_variant_specs() -> list[dict[str, object]]:
         {
             "key": "pe_gtt_4_employment",
             "label": "Philosophical Economics GTT #4: Employment Growth",
-            "description": "Timing turns on when payroll employment YoY growth is below 0%.",
+            "description": "Timing turns on when labor-force-adjusted payroll employment YoY growth is below 0%.",
             "scores": {"employment": 1.0},
             "trigger_score": 1.0,
         },
         {
             "key": "pe_gtt_5_income_or_housing",
             "label": "Philosophical Economics GTT #5: Real Income or Housing Starts",
-            "description": "Timing turns on when real personal income YoY growth is below 3% or housing starts YoY growth is below -10%.",
+            "description": "Timing turns on when real personal income YoY growth is below 3% or labor-force-adjusted housing starts YoY growth is below -10%.",
             "scores": {"real_income": 1.0, "housing_starts": 1.0},
             "trigger_score": 1.0,
         },

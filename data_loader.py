@@ -257,7 +257,7 @@ def next_fred_release_date(
     return pd.Timestamp(scheduled.iloc[0]), True
 
 
-def _final_fred_events_before_vintages(
+def load_final_fred_events_before_vintages(
     series: str, revision_events: pd.DataFrame, refresh: bool = False
 ) -> pd.DataFrame:
     final = load_fred_series(series, refresh=refresh).rename("value").reset_index()
@@ -266,6 +266,60 @@ def _final_fred_events_before_vintages(
     if not revision_events.empty:
         final = final.loc[final["available_date"] < revision_events["available_date"].min()]
     return final[["observation_date", "available_date", "value"]]
+
+
+def load_hybrid_fred_events(series: str, refresh: bool = False) -> pd.DataFrame:
+    """FRED event stream combining early final values with point-in-time vintages."""
+    revision_events = load_fred_revision_events(series, refresh=refresh)
+    final_events = load_final_fred_events_before_vintages(series, revision_events, refresh)
+    events = pd.concat([final_events, revision_events], ignore_index=True)
+    return events.sort_values(["available_date", "observation_date"]).reset_index(drop=True)
+
+
+def load_initial_fred_events(series: str, refresh: bool = False) -> pd.DataFrame:
+    """Initial-release FRED observations normalized to the event schema."""
+    initial = load_fred_initial_release_observations(series, refresh=refresh)
+    if initial.empty:
+        return pd.DataFrame(columns=["observation_date", "available_date", "value"])
+    return initial.rename(columns={"release_date": "available_date"})[
+        ["observation_date", "available_date", "value"]
+    ].sort_values(["available_date", "observation_date"]).reset_index(drop=True)
+
+
+def load_real_retail_sales_events(refresh: bool = False) -> pd.DataFrame:
+    """Article-style real retail sales event history for live backtests.
+
+    The live dashboard uses discontinued FRED RSALES for the earlier real retail
+    sales history and scaled modern RRSFS after RSALES ends. Early RSALES values
+    use the same approximate one-month reporting lag as other final-value
+    fallback data; modern RRSFS keeps the hybrid revision-aware event history.
+    """
+    rsales_events = load_final_fred_events_before_vintages("RSALES", pd.DataFrame(), refresh)
+    if rsales_events.empty:
+        return load_hybrid_fred_events("RRSFS", refresh)
+
+    rsales = load_fred_series("RSALES", refresh=refresh)
+    rrsfs = load_fred_series("RRSFS", refresh=refresh)
+    overlap = rsales.index.intersection(rrsfs.index)
+    scale = 1.0
+    if not overlap.empty:
+        scale = float((rsales.loc[overlap] / rrsfs.loc[overlap]).median())
+
+    splice_date = pd.Timestamp(rsales_events["observation_date"].max())
+    rrsfs_events = load_hybrid_fred_events("RRSFS", refresh=refresh)
+    rrsfs_events = rrsfs_events.loc[rrsfs_events["observation_date"] > splice_date].copy()
+    if not rrsfs_events.empty:
+        rrsfs_events["value"] = rrsfs_events["value"] * scale
+
+    events = pd.concat([rsales_events, rrsfs_events], ignore_index=True)
+    return events.sort_values(["available_date", "observation_date"]).reset_index(drop=True)
+
+
+def load_indicator_fred_events(series: str, refresh: bool = False) -> pd.DataFrame:
+    """Production FRED event stream for a configured macro indicator."""
+    if series == "RRSFS":
+        return load_real_retail_sales_events(refresh)
+    return load_hybrid_fred_events(series, refresh)
 
 
 def load_spy_prices(refresh: bool = False) -> pd.DataFrame:
@@ -371,7 +425,7 @@ def load_cash_level(daily_index: pd.DatetimeIndex, refresh: bool = False) -> pd.
     tb3ms_revisions = load_fred_revision_events("TB3MS", refresh=refresh)
     tb3ms_obs = pd.concat(
         [
-            _final_fred_events_before_vintages("TB3MS", tb3ms_revisions, refresh=refresh),
+            load_final_fred_events_before_vintages("TB3MS", tb3ms_revisions, refresh=refresh),
             tb3ms_revisions,
         ],
         ignore_index=True,

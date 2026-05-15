@@ -22,6 +22,7 @@ class IndicatorRule:
     signal_score: float
     display: str
     source_url: str
+    denominator_series: str | None = None
 
 
 INDICATORS: tuple[IndicatorRule, ...] = (
@@ -66,8 +67,9 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         threshold=0.0,
         direction="below",
         signal_score=1.0,
-        display="YoY growth below 0%",
+        display="Labor-force-adjusted YoY growth below 0%",
         source_url="https://fred.stlouisfed.org/graph/?g=3au3",
+        denominator_series="CLF16OV",
     ),
     IndicatorRule(
         key="real_income",
@@ -88,8 +90,9 @@ INDICATORS: tuple[IndicatorRule, ...] = (
         threshold=-0.10,
         direction="below",
         signal_score=1.0,
-        display="YoY growth below -10%",
+        display="Labor-force-adjusted YoY growth below -10%",
         source_url="https://fred.stlouisfed.org/graph/?g=3aud",
+        denominator_series="CLF16OV",
     ),
 )
 
