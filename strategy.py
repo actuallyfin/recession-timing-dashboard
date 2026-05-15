@@ -23,7 +23,9 @@ from data_loader import (
 
 def _apply_transform(series: pd.Series, transform: str) -> pd.Series:
     if transform == "yoy":
-        return series.pct_change(12)
+        prior = series.copy()
+        prior.index = prior.index + pd.DateOffset(years=1)
+        return series / prior.reindex(series.index) - 1
     if transform == "above_12m_sma":
         return series - series.rolling(12, min_periods=12).mean()
     raise ValueError(f"Unknown transform: {transform}")
