@@ -15,8 +15,8 @@ from config import (
 from data_loader import (
     cash_returns_on,
     load_cash_level,
-    load_fred_series,
-    load_fred_revision_events,
+    load_indicator_fred_events,
+    load_initial_fred_events,
     load_spy_prices,
 )
 
@@ -77,21 +77,63 @@ def _build_asof_indicator_events(events: pd.DataFrame, transform: str, threshold
     return pd.DataFrame(rows)
 
 
-def _final_value_events_before_vintages(series_id: str, revision_events: pd.DataFrame, refresh: bool) -> pd.DataFrame:
-    final = load_fred_series(series_id, refresh=refresh).rename("value").reset_index()
-    final.columns = ["observation_date", "value"]
-    final["available_date"] = final["observation_date"] + pd.offsets.MonthEnd(1)
-    if not revision_events.empty:
-        first_vintage = revision_events["available_date"].min()
-        final = final.loc[final["available_date"] < first_vintage]
-    return final[["observation_date", "available_date", "value"]]
+def _build_asof_ratio_indicator_events(
+    numerator_events: pd.DataFrame,
+    denominator_events: pd.DataFrame,
+    transform: str,
+    threshold: float,
+) -> pd.DataFrame:
+    if numerator_events.empty or denominator_events.empty:
+        return pd.DataFrame(
+            columns=["available_date", "observation_date", "raw_value", "signal_value", "threshold"]
+        )
 
+    numerator = numerator_events.copy()
+    denominator = denominator_events.copy()
+    numerator["component"] = "numerator"
+    denominator["component"] = "denominator"
+    events = pd.concat([numerator, denominator], ignore_index=True).sort_values(
+        ["available_date", "observation_date", "component"]
+    )
 
-def _load_hybrid_indicator_events(series_id: str, refresh: bool) -> pd.DataFrame:
-    revision_events = load_fred_revision_events(series_id, refresh=refresh)
-    final_events = _final_value_events_before_vintages(series_id, revision_events, refresh)
-    events = pd.concat([final_events, revision_events], ignore_index=True)
-    return events.sort_values(["available_date", "observation_date"]).reset_index(drop=True)
+    current_numerator: dict[pd.Timestamp, float] = {}
+    current_denominator: dict[pd.Timestamp, float] = {}
+    rows = []
+    for available_date, group in events.groupby("available_date", sort=True):
+        for row in group.itertuples(index=False):
+            observation_date = pd.Timestamp(row.observation_date)
+            if row.component == "numerator":
+                current_numerator[observation_date] = float(row.value)
+            else:
+                current_denominator[observation_date] = float(row.value)
+        common_dates = sorted(set(current_numerator).intersection(current_denominator))
+        if not common_dates:
+            continue
+        snapshot = pd.Series(
+            {
+                date: current_numerator[date] / current_denominator[date]
+                for date in common_dates
+                if current_denominator[date] != 0
+            }
+        ).sort_index()
+        if snapshot.empty:
+            continue
+        signal = _apply_transform(snapshot, transform)
+        threshold_values = _threshold_series(snapshot, transform, threshold)
+        valid_signal = signal.dropna()
+        if valid_signal.empty:
+            continue
+        observation_date = valid_signal.index[-1]
+        rows.append(
+            {
+                "available_date": pd.Timestamp(available_date),
+                "observation_date": pd.Timestamp(observation_date),
+                "raw_value": float(snapshot.loc[observation_date]),
+                "signal_value": float(signal.loc[observation_date]),
+                "threshold": float(threshold_values.loc[observation_date]),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def build_indicator_history(
@@ -104,10 +146,16 @@ def build_indicator_history(
     available_dates: dict[str, pd.Series] = {}
 
     for rule in INDICATORS:
-        revision_events = _load_hybrid_indicator_events(rule.fred_series, refresh=refresh)
-        by_release = _build_asof_indicator_events(
-            revision_events, rule.transform, rule.threshold
-        ).set_index("available_date")
+        series_events = load_indicator_fred_events(rule.fred_series, refresh=refresh)
+        if rule.denominator_series:
+            denominator_events = load_initial_fred_events(rule.denominator_series, refresh=refresh)
+            by_release = _build_asof_ratio_indicator_events(
+                series_events, denominator_events, rule.transform, rule.threshold
+            ).set_index("available_date")
+        else:
+            by_release = _build_asof_indicator_events(
+                series_events, rule.transform, rule.threshold
+            ).set_index("available_date")
 
         values[rule.key] = by_release["signal_value"]
         thresholds[rule.key] = by_release["threshold"]
@@ -165,14 +213,15 @@ def build_strategy(refresh: bool = False) -> dict[str, pd.DataFrame | dict[str, 
     daily = daily.join(timing_daily)
     daily[["trip_count", "signal_score"]] = daily[["trip_count", "signal_score"]].fillna(0)
     daily["timing_on"] = daily["timing_on"].fillna(False).astype(bool)
+    daily["trend_above_sma"] = daily["trend_above_sma"].fillna(False).astype(bool)
     first_valid_sma = daily["sma_200"].first_valid_index()
     if first_valid_sma is None:
         raise RuntimeError("SPY history is too short to compute a 200-day SMA.")
     daily = daily.loc[first_valid_sma:].copy()
     daily.loc[daily.index[0], ["daily_return", "cash_return"]] = 0.0
 
-    daily["combined_invested"] = (~daily["timing_on"]) | daily["trend_above_sma"]
-    daily["always_timing_invested"] = daily["trend_above_sma"].fillna(False)
+    daily["combined_invested"] = ((~daily["timing_on"]) | daily["trend_above_sma"]).astype(bool)
+    daily["always_timing_invested"] = daily["trend_above_sma"].astype(bool)
     daily["buy_hold_invested"] = True
 
     combined_position = daily["combined_invested"].shift(1).fillna(True).astype(bool)

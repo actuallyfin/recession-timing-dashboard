@@ -68,6 +68,11 @@ def load_yahoo_prices(
         if fallback_csv is None or not fallback_csv.exists():
             raise
         return load_local_yfinance_csv(fallback_csv, start_date=start_date)
+    cache_timestamp = None
+    if cache_path.exists():
+        cache_timestamp = pd.Timestamp.fromtimestamp(
+            cache_path.stat().st_mtime, tz="America/New_York"
+        )
 
     payload = json.loads(text)
     result = payload["chart"]["result"][0]
@@ -92,7 +97,11 @@ def load_yahoo_prices(
     frame["Close"] = pd.to_numeric(frame["Close"], errors="coerce")
     frame["Unadjusted Close"] = pd.to_numeric(frame["Unadjusted Close"], errors="coerce")
     frame = frame.dropna(subset=["Close"])
-    return drop_incomplete_current_session(frame, market_close_buffer=market_close_buffer)
+    return drop_incomplete_current_session(
+        frame,
+        now=cache_timestamp,
+        market_close_buffer=market_close_buffer,
+    )
 
 
 def drop_incomplete_current_session(
