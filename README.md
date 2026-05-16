@@ -19,9 +19,10 @@ accident, see `docs/current_site_contract.md`.
 5. Compare against the matching moving-average strategy that is always active and against buy-and-hold.
 
 The default ActuallyFinance GTT strategy excludes employment growth from scoring,
-keeps UNRATE at `signal_score=2.0`, and counts retail sales, industrial
-production, real income, and housing starts at `signal_score=1.0`. Timing turns
-on when the selected indicator scores reach `TIMING_ON_TRIGGER_SCORE=2.0`.
+keeps Unemployment Rate Trend at `signal_score=2.0`, and counts retail sales,
+industrial production, real income, and housing starts at `signal_score=1.0`.
+Timing turns on when the selected indicator scores reach
+`TIMING_ON_TRIGGER_SCORE=2.0`.
 To match the Philosophical Economics article definitions, employment growth is
 calculated as `PAYEMS / CLF16OV` year-over-year and housing-start growth is
 calculated as `HOUST / CLF16OV` year-over-year. Real personal income remains

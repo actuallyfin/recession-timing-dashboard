@@ -782,7 +782,7 @@ SHORT_CHART_LABELS = {
     "pe_gtt_3_retail_or_industrial": "Retail/IP",
     "pe_gtt_4_employment": "Jobs",
     "pe_gtt_5_income_or_housing": "Income/Housing",
-    "pe_gtt_6_unrate": "UNRATE",
+    "pe_gtt_6_unrate": "Unemployment Rate Trend",
     "benchmark_sma": "200D SMA",
     "benchmark_buy_hold": "Buy & Hold",
 }

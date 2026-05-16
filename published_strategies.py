@@ -14,7 +14,7 @@ def strategy_variant_specs() -> list[dict[str, object]]:
         {
             "key": "actuallyfinance_gtt",
             "label": "ActuallyFinance GTT",
-            "description": "Score-based economic gate. UNRATE counts as 2; retail sales, industrial production, real income, and housing starts count as 1; timing turns on at score 2.",
+            "description": "Score-based economic gate. Unemployment Rate Trend counts as 2; retail sales, industrial production, real income, and housing starts count as 1; timing turns on at score 2.",
             "scores": actuallyfinance_scores,
             "trigger_score": TIMING_ON_TRIGGER_SCORE,
         },
@@ -55,8 +55,8 @@ def strategy_variant_specs() -> list[dict[str, object]]:
         },
         {
             "key": "pe_gtt_6_unrate",
-            "label": "Philosophical Economics GTT #6: UNRATE Trend",
-            "description": "Timing turns on when UNRATE is above its 12-month average.",
+            "label": "Philosophical Economics GTT #6: Unemployment Rate Trend",
+            "description": "Timing turns on when the unemployment rate is above its 12-month average.",
             "scores": {"unemployment": 1.0},
             "trigger_score": 1.0,
         },
