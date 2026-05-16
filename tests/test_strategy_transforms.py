@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from dashboard import position_returns_with_cost
 from strategy import _apply_transform
 
 
@@ -46,8 +47,27 @@ def test_yoy_stays_missing_when_interpolation_neighbors_are_missing() -> None:
     assert pd.isna(yoy.loc[pd.Timestamp("2026-10-01")])
 
 
+def test_position_returns_charge_one_way_cost_on_position_changes() -> None:
+    dates = pd.date_range("2024-01-01", periods=4, freq="D")
+    asset_returns = pd.Series([0.0, 0.01, -0.02, 0.03], index=dates)
+    cash_returns = pd.Series([0.0, 0.001, 0.001, 0.001], index=dates)
+    invested_signal = pd.Series([True, False, False, True], index=dates)
+
+    position, returns = position_returns_with_cost(
+        asset_returns,
+        cash_returns,
+        invested_signal,
+        True,
+        0.0005,
+    )
+
+    assert position.tolist() == [True, True, False, False]
+    assert returns.tolist() == [0.0, 0.01, 0.0005, 0.001]
+
+
 if __name__ == "__main__":
     test_yoy_uses_exact_calendar_year_when_available()
     test_yoy_interpolates_isolated_missing_year_ago_month()
     test_yoy_stays_missing_when_interpolation_neighbors_are_missing()
+    test_position_returns_charge_one_way_cost_on_position_changes()
     print("strategy transform tests ok")

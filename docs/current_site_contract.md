@@ -34,7 +34,16 @@ The live page has a trend-rule selector that is separate from the strategy selec
 - `200d`: the default mode. It uses daily returns, a 200-day SMA trend rule, and keeps the existing dashboard presentation unchanged on first load.
 - `10m`: the monthly mode. It uses completed month-end observations, a 10-month moving average of month-end prices, monthly compounded cash returns, and a position shift so the selected month-end signal applies to the following month.
 
-`dashboard.py` writes separate CSV snapshots for the two modes: `daily_strategy.csv` and `monthly_signal.csv` for the 200-day default, plus `monthly_signal_10m.csv` and `performance_summary_10m.csv` for the monthly mode. `strategy_variants.json` is nested by trend mode and powers the browser-side selector.
+`dashboard.py` writes separate CSV snapshots for the two modes: `daily_strategy.csv` and `monthly_signal.csv` for the 200-day default, plus `monthly_signal_10m.csv` and `performance_summary_10m.csv` for the monthly mode.
+
+## Published Trading Cost Contract
+
+The live page has a trading-cost selector that is separate from both the strategy selector and the trend-rule selector:
+
+- `0bps`: the default mode. No explicit bid/ask trading cost is applied.
+- `10bps`: assumes a 10 bps bid/ask spread, modeled as a 5 bps one-way cost whenever a strategy changes between equity and cash.
+
+The cost is applied to the strategy variants and the always-on moving-average benchmark. Buy-and-hold has no recurring allocation changes. `dashboard.py` writes companion snapshots for the 10 bps mode: `performance_summary_10bps.csv` and `performance_summary_10m_10bps.csv`. `strategy_variants.json` is nested by trend mode and trading-cost mode and powers both browser-side selectors.
 
 ## Research-Only Area
 
