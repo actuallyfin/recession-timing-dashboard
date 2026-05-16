@@ -37,6 +37,23 @@ TREND_MODES = {
     },
 }
 
+TRADE_COST_MODES = {
+    "0bps": {
+        "label": "0 bps bid/ask",
+        "control_label": "0 bps bid/ask",
+        "one_way_cost": 0.0,
+        "stats_note": "Trading costs are set to 0 bps.",
+        "rules_note": "No explicit bid/ask trading cost is applied.",
+    },
+    "10bps": {
+        "label": "10 bps bid/ask",
+        "control_label": "10 bps bid/ask (5 bps each way)",
+        "one_way_cost": 0.0005,
+        "stats_note": "A 10 bps bid/ask spread is modeled as a 5 bps one-way cost whenever a strategy changes between equity and cash.",
+        "rules_note": "Trading costs assume a 10 bps bid/ask spread, modeled as a 5 bps one-way cost whenever the strategy changes between equity and cash.",
+    },
+}
+
 
 COLORS = {
     "ink": "#172026",
@@ -124,6 +141,21 @@ def trip_count_for_variant(indicator_trips: pd.DataFrame, scores: dict[str, floa
     if not scores:
         return pd.Series(0, index=indicator_trips.index)
     return indicator_trips[list(scores)].sum(axis=1).astype(int)
+
+
+def position_returns_with_cost(
+    asset_returns: pd.Series,
+    cash_returns: pd.Series,
+    invested_signal: pd.Series,
+    initial_position: bool,
+    one_way_cost: float,
+) -> tuple[pd.Series, pd.Series]:
+    position = invested_signal.shift(1).fillna(initial_position).astype(bool)
+    returns = asset_returns.where(position, cash_returns).copy()
+    if one_way_cost:
+        trades = position.astype(int).diff().abs().fillna(0.0)
+        returns = returns - trades * one_way_cost
+    return position, returns
 
 
 def build_next_update_dates(result: dict[str, object], refresh: bool = False) -> dict[str, str]:
@@ -215,7 +247,7 @@ def build_current_rows_for_variant(
     return pd.DataFrame(current_rows)
 
 
-def build_rules_html(spec: dict[str, object], trend_rule_text: str) -> str:
+def build_rules_html(spec: dict[str, object], trend_rule_text: str, trade_cost_note: str) -> str:
     scores = spec["scores"]
     used_rules = [rule for rule in INDICATORS if rule.key in scores]
     used_list = "\n".join(
@@ -233,7 +265,7 @@ def build_rules_html(spec: dict[str, object], trend_rule_text: str) -> str:
       </ol>
       <p class="note">Indicators used by this strategy (links to FRED):</p>
       <ul class="rules">{used_list}</ul>
-      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The SPY ETF/Proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the selected moving average is available.</p>
+      <p class="note">Backtest is structured to use FRED real-time revision events when available. Before an indicator's vintage history begins, final revised FRED values are used with an approximate one-month reporting lag; indicators do not contribute before their own series has enough history. The SPY ETF/Proxy uses a synthetic S&P 500 total-return approximation through 1987, the Yahoo ^SP500TR daily total-return index from 1988 until SPY starts, and adjusted SPY prices after inception. The pre-1988 synthetic segment is reduced by an inception-era SPY expense assumption. The historical test begins once the selected moving average is available. {html.escape(trade_cost_note)}</p>
     """
 
 
@@ -368,9 +400,12 @@ def build_variant_result(
     result: dict[str, object],
     spec: dict[str, object],
     next_update_dates: dict[str, str],
+    trade_cost_key: str = "0bps",
 ) -> dict[str, object]:
     scores = spec["scores"]
     trigger_score = float(spec["trigger_score"])
+    cost_meta = TRADE_COST_MODES[trade_cost_key]
+    one_way_cost = float(cost_meta["one_way_cost"])
     daily = result["daily"][
         [
             "Close",
@@ -404,9 +439,23 @@ def build_variant_result(
     daily["timing_on"] = daily["timing_on"].fillna(False).astype(bool)
     daily["trend_above_sma"] = daily["trend_above_sma"].fillna(False).astype(bool)
     daily["combined_invested"] = ((~daily["timing_on"]) | daily["trend_above_sma"]).astype(bool)
-    combined_position = daily["combined_invested"].shift(1).fillna(True).astype(bool)
-    daily["combined_return"] = daily["daily_return"].where(combined_position, daily["cash_return"])
+    combined_position, daily["combined_return"] = position_returns_with_cost(
+        daily["daily_return"],
+        daily["cash_return"],
+        daily["combined_invested"],
+        True,
+        one_way_cost,
+    )
+    _, daily["always_timing_return"] = position_returns_with_cost(
+        daily["daily_return"],
+        daily["cash_return"],
+        daily["always_timing_invested"],
+        False,
+        one_way_cost,
+    )
     daily["combined_equity"] = (1 + daily["combined_return"]).cumprod()
+    daily["always_timing_equity"] = (1 + daily["always_timing_return"]).cumprod()
+    daily["always_timing_growth_10k"] = 10_000 * daily["always_timing_equity"]
     daily["combined_growth_10k"] = 10_000 * daily["combined_equity"]
 
     monthly = daily.resample("ME").last()
@@ -453,6 +502,9 @@ def build_variant_result(
         "trend_rule_label": TREND_MODES["200d"]["label"],
         "trend_rule_text": TREND_MODES["200d"]["rule_text"],
         "trend_tile_label": TREND_MODES["200d"]["tile_label"],
+        "trade_cost_key": trade_cost_key,
+        "trade_cost_label": cost_meta["label"],
+        "trade_cost_note": cost_meta["rules_note"],
     }
     stats = pd.DataFrame(
         [
@@ -465,6 +517,7 @@ def build_variant_result(
     return {
         "spec": spec,
         "mode": "200d",
+        "trade_cost_key": trade_cost_key,
         "daily": daily,
         "monthly": monthly,
         "summary": summary,
@@ -522,9 +575,12 @@ def build_monthly_variant_result(
     result: dict[str, object],
     spec: dict[str, object],
     next_update_dates: dict[str, str],
+    trade_cost_key: str = "0bps",
 ) -> dict[str, object]:
     scores = spec["scores"]
     trigger_score = float(spec["trigger_score"])
+    cost_meta = TRADE_COST_MODES[trade_cost_key]
+    one_way_cost = float(cost_meta["one_way_cost"])
     daily = result["daily"][["Close", "cash_return"]].copy()
     source_dates = daily["Close"].dropna().resample("ME").apply(lambda values: values.index[-1])
     monthly = pd.DataFrame(
@@ -563,10 +619,20 @@ def build_monthly_variant_result(
     monthly["timing_on"] = monthly["timing_on"].fillna(False).astype(bool)
     monthly["combined_invested"] = ((~monthly["timing_on"]) | monthly["trend_above_sma"]).astype(bool)
 
-    combined_position = monthly["combined_invested"].shift(1).fillna(True).astype(bool)
-    always_position = monthly["always_timing_invested"].shift(1).fillna(False).astype(bool)
-    monthly["combined_return"] = monthly["monthly_return"].where(combined_position, monthly["cash_return"])
-    monthly["always_timing_return"] = monthly["monthly_return"].where(always_position, monthly["cash_return"])
+    _, monthly["combined_return"] = position_returns_with_cost(
+        monthly["monthly_return"],
+        monthly["cash_return"],
+        monthly["combined_invested"],
+        True,
+        one_way_cost,
+    )
+    _, monthly["always_timing_return"] = position_returns_with_cost(
+        monthly["monthly_return"],
+        monthly["cash_return"],
+        monthly["always_timing_invested"],
+        False,
+        one_way_cost,
+    )
     monthly["buy_hold_return"] = monthly["monthly_return"]
     monthly["combined_equity"] = (1 + monthly["combined_return"]).cumprod()
     monthly["always_timing_equity"] = (1 + monthly["always_timing_return"]).cumprod()
@@ -599,6 +665,9 @@ def build_monthly_variant_result(
         "trend_rule_label": TREND_MODES["10m"]["label"],
         "trend_rule_text": TREND_MODES["10m"]["rule_text"],
         "trend_tile_label": TREND_MODES["10m"]["tile_label"],
+        "trade_cost_key": trade_cost_key,
+        "trade_cost_label": cost_meta["label"],
+        "trade_cost_note": cost_meta["rules_note"],
     }
     stats = pd.DataFrame(
         [
@@ -632,6 +701,7 @@ def build_monthly_variant_result(
     return {
         "spec": spec,
         "mode": "10m",
+        "trade_cost_key": trade_cost_key,
         "daily": monthly,
         "monthly": monthly,
         "summary": summary,
@@ -737,6 +807,7 @@ def render_variant_payload(variant: dict[str, object]) -> dict[str, object]:
     monthly = variant["monthly"]
     action = current_action(summary)
     mode_meta = TREND_MODES[str(variant["mode"])]
+    cost_meta = TRADE_COST_MODES[str(variant["trade_cost_key"])]
     return {
         "key": summary["key"],
         "label": summary["label"],
@@ -758,11 +829,16 @@ def render_variant_payload(variant: dict[str, object]) -> dict[str, object]:
             "spyClose": num(summary["spy_close"], 2),
             "spySma200": num(summary["spy_sma_200"], 2),
             "recentTrendHeader": mode_meta["recent_header"],
-            "statsNote": mode_meta["stats_note"],
+            "tradeCostLabel": cost_meta["label"],
+            "statsNote": f'{mode_meta["stats_note"]} {cost_meta["stats_note"]}',
         },
         "indicatorRows": render_indicator_rows(variant["current_indicators"]),
         "recentRows": render_recent_rows(monthly),
-        "rulesHtml": build_rules_html(variant["spec"], summary["trend_rule_text"]),
+        "rulesHtml": build_rules_html(
+            variant["spec"],
+            summary["trend_rule_text"],
+            str(cost_meta["rules_note"]),
+        ),
         "equityChart": svg_line_chart(
             monthly,
             ["combined_growth_10k", "always_timing_growth_10k", "buy_hold_growth_10k"],
@@ -894,72 +970,96 @@ def build_dashboard(refresh: bool = False) -> Path:
         "nextMacroReleaseDate": next_macro_release_date_text(next_update_dates),
     }
     mode_variants = {
-        "200d": [build_variant_result(result, spec, next_update_dates) for spec in variant_specs],
-        "10m": [build_monthly_variant_result(result, spec, next_update_dates) for spec in variant_specs],
+        "200d": {
+            cost_key: [
+                build_variant_result(result, spec, next_update_dates, cost_key)
+                for spec in variant_specs
+            ]
+            for cost_key in TRADE_COST_MODES
+        },
+        "10m": {
+            cost_key: [
+                build_monthly_variant_result(result, spec, next_update_dates, cost_key)
+                for spec in variant_specs
+            ]
+            for cost_key in TRADE_COST_MODES
+        },
     }
     default_chart_keys = {"actuallyfinance_gtt", "benchmark_sma", "benchmark_buy_hold"}
     chart_keys = [str(spec["key"]) for spec in variant_specs] + ["benchmark_sma", "benchmark_buy_hold"]
 
     mode_payloads = {}
     mode_stats = {}
-    for mode_key, variants in mode_variants.items():
-        comparison_stats = build_comparison_stats(variants)
-        mode_stats[mode_key] = comparison_stats
-        variant_payloads = {
-            str(variant["summary"]["key"]): render_variant_payload(variant)
-            for variant in variants
-        }
-        for payload in variant_payloads.values():
-            payload["summary"].update(macro_update_meta)
-        chart_series = growth_chart_series(variants)
-        mode_payloads[mode_key] = {
-            "label": TREND_MODES[mode_key]["control_label"],
-            "strategies": variant_payloads,
-            "statRows": render_stat_rows(comparison_stats, str(variants[0]["summary"]["key"])),
-            "growthChart": svg_multi_growth_chart(chart_series, default_chart_keys),
-            "growthControls": render_growth_controls(
-                chart_keys,
-                default_chart_keys,
-                TREND_MODES[mode_key]["label"],
-            ),
-            "statsNote": TREND_MODES[mode_key]["stats_note"],
-        }
+    for mode_key, cost_variants in mode_variants.items():
+        mode_payloads[mode_key] = {}
+        mode_stats[mode_key] = {}
+        for cost_key, variants in cost_variants.items():
+            comparison_stats = build_comparison_stats(variants)
+            mode_stats[mode_key][cost_key] = comparison_stats
+            variant_payloads = {
+                str(variant["summary"]["key"]): render_variant_payload(variant)
+                for variant in variants
+            }
+            for payload in variant_payloads.values():
+                payload["summary"].update(macro_update_meta)
+            chart_series = growth_chart_series(variants)
+            mode_payloads[mode_key][cost_key] = {
+                "label": TREND_MODES[mode_key]["control_label"],
+                "costLabel": TRADE_COST_MODES[cost_key]["control_label"],
+                "strategies": variant_payloads,
+                "statRows": render_stat_rows(comparison_stats, str(variants[0]["summary"]["key"])),
+                "growthChart": svg_multi_growth_chart(chart_series, default_chart_keys),
+                "growthControls": render_growth_controls(
+                    chart_keys,
+                    default_chart_keys,
+                    TREND_MODES[mode_key]["label"],
+                ),
+                "statsNote": f'{TREND_MODES[mode_key]["stats_note"]} {TRADE_COST_MODES[cost_key]["stats_note"]}',
+            }
 
-    default_variant = mode_variants["200d"][0]
-    default_payload = mode_payloads["200d"]["strategies"][str(default_variant["summary"]["key"])]
+    default_variant = mode_variants["200d"]["0bps"][0]
+    default_payload = mode_payloads["200d"]["0bps"]["strategies"][str(default_variant["summary"]["key"])]
 
     default_variant["daily"].to_csv(OUTPUT_DIR / "daily_strategy.csv")
     default_variant["monthly"].to_csv(OUTPUT_DIR / "monthly_signal.csv")
-    mode_variants["10m"][0]["monthly"].to_csv(OUTPUT_DIR / "monthly_signal_10m.csv")
+    mode_variants["10m"]["0bps"][0]["monthly"].to_csv(OUTPUT_DIR / "monthly_signal_10m.csv")
     default_variant["current_indicators"].to_csv(OUTPUT_DIR / "current_indicators.csv", index=False)
-    mode_stats["200d"].to_csv(OUTPUT_DIR / "performance_summary.csv", index=False)
-    mode_stats["10m"].to_csv(OUTPUT_DIR / "performance_summary_10m.csv", index=False)
+    mode_stats["200d"]["0bps"].to_csv(OUTPUT_DIR / "performance_summary.csv", index=False)
+    mode_stats["10m"]["0bps"].to_csv(OUTPUT_DIR / "performance_summary_10m.csv", index=False)
+    mode_stats["200d"]["10bps"].to_csv(OUTPUT_DIR / "performance_summary_10bps.csv", index=False)
+    mode_stats["10m"]["10bps"].to_csv(OUTPUT_DIR / "performance_summary_10m_10bps.csv", index=False)
     (OUTPUT_DIR / "summary.json").write_text(json.dumps(default_variant["summary"], indent=2), encoding="utf-8")
     all_variant_stats = []
-    for mode_key, variants in mode_variants.items():
-        for variant in variants:
-            stats = variant["stats"].copy()
-            stats.insert(0, "trend_mode", mode_key)
-            stats.insert(1, "variant_key", variant["summary"]["key"])
-            stats.insert(2, "variant_label", variant["summary"]["label"])
-            all_variant_stats.append(stats)
+    for mode_key, cost_variants in mode_variants.items():
+        for cost_key, variants in cost_variants.items():
+            for variant in variants:
+                stats = variant["stats"].copy()
+                stats.insert(0, "trend_mode", mode_key)
+                stats.insert(1, "trade_cost_mode", cost_key)
+                stats.insert(2, "variant_key", variant["summary"]["key"])
+                stats.insert(3, "variant_label", variant["summary"]["label"])
+                all_variant_stats.append(stats)
     pd.concat(all_variant_stats, ignore_index=True).to_csv(
         OUTPUT_DIR / "strategy_variant_performance.csv", index=False
     )
 
     json_payload = {
         mode_key: {
-            "label": payload["label"],
-            "strategies": {
-                key: {
-                    "label": value["label"],
-                    "description": value["description"],
-                    "summary": value["summary"],
-                }
-                for key, value in payload["strategies"].items()
-            },
+            cost_key: {
+                "label": payload["label"],
+                "costLabel": payload["costLabel"],
+                "strategies": {
+                    key: {
+                        "label": value["label"],
+                        "description": value["description"],
+                        "summary": value["summary"],
+                    }
+                    for key, value in payload["strategies"].items()
+                },
+            }
+            for cost_key, payload in cost_payloads.items()
         }
-        for mode_key, payload in mode_payloads.items()
+        for mode_key, cost_payloads in mode_payloads.items()
     }
     (OUTPUT_DIR / "strategy_variants.json").write_text(
         json.dumps(json_payload, indent=2), encoding="utf-8"
@@ -1009,9 +1109,10 @@ def render_html(
     action = default_payload["action"]
     summary = default_payload["summary"]
     default_mode = "200d"
-    growth_chart = mode_payloads[default_mode]["growthChart"]
-    growth_controls = mode_payloads[default_mode]["growthControls"]
-    comparison_stat_rows = mode_payloads[default_mode]["statRows"]
+    default_cost = "0bps"
+    growth_chart = mode_payloads[default_mode][default_cost]["growthChart"]
+    growth_controls = mode_payloads[default_mode][default_cost]["growthControls"]
+    comparison_stat_rows = mode_payloads[default_mode][default_cost]["statRows"]
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -1061,14 +1162,17 @@ def render_html(
       color: var(--muted);
       line-height: 1.45;
     }}
-    .strategy-control {{
+    .strategy-control, .section-control {{
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
       align-items: center;
       margin-top: 18px;
     }}
-    .strategy-control label {{
+    .section-control {{
+      margin: 0 0 14px;
+    }}
+    .strategy-control label, .section-control label {{
       color: var(--muted);
       font-size: 12px;
       text-transform: uppercase;
@@ -1311,10 +1415,10 @@ def render_html(
       p {{
         font-size: 14px;
       }}
-      .strategy-control {{
+      .strategy-control, .section-control {{
         display: block;
       }}
-      .strategy-control label {{
+      .strategy-control label, .section-control label {{
         display: block;
         margin-bottom: 6px;
       }}
@@ -1513,6 +1617,15 @@ def render_html(
     </section>
     <section>
       <h2>Performance Summary</h2>
+      <div class="section-control">
+        <div>
+          <label for="trade-cost-select">Trading Cost</label>
+          <select id="trade-cost-select">
+            <option value="0bps">0 bps bid/ask</option>
+            <option value="10bps">10 bps bid/ask (5 bps each way)</option>
+          </select>
+        </div>
+      </div>
       <div class="table-scroll">
         <table class="responsive-table">
           <thead><tr><th>Strategy</th><th class="num">Start</th><th class="num">End</th><th class="num">Final Equity</th><th class="num">CAGR</th><th class="num">Vol</th><th class="num">Sharpe</th><th class="num">Sortino</th><th class="num">Max DD</th><th class="num">Avg % Invested</th></tr></thead>
@@ -1547,10 +1660,12 @@ def render_html(
     const dashboardData = JSON.parse(document.getElementById("strategy-data").textContent);
     const select = document.getElementById("strategy-select");
     const trendModeSelect = document.getElementById("trend-mode-select");
+    const tradeCostSelect = document.getElementById("trade-cost-select");
     let renderedMode = trendModeSelect.value;
+    let renderedCost = tradeCostSelect.value;
     let chartInputs = [];
     function currentModeData() {{
-      return dashboardData[trendModeSelect.value];
+      return dashboardData[trendModeSelect.value][tradeCostSelect.value];
     }}
     function updateGrowthLines() {{
       const visible = new Set(chartInputs.filter(input => input.checked).map(input => input.dataset.series));
@@ -1579,12 +1694,13 @@ def render_html(
       const mode = currentModeData();
       const strategy = mode.strategies[key];
       const summary = strategy.summary;
-      if (resetMode || renderedMode !== trendModeSelect.value) {{
+      if (resetMode || renderedMode !== trendModeSelect.value || renderedCost !== tradeCostSelect.value) {{
         document.getElementById("stat-rows").innerHTML = mode.statRows;
         document.getElementById("growth-controls").innerHTML = mode.growthControls;
         document.getElementById("equity-chart").innerHTML = mode.growthChart;
         document.getElementById("stats-note").textContent = mode.statsNote;
         renderedMode = trendModeSelect.value;
+        renderedCost = tradeCostSelect.value;
         bindChartInputs();
       }}
       const selectedChartInput = document.querySelector('.chart-toggle input[data-series="' + key + '"]');
@@ -1617,6 +1733,7 @@ def render_html(
     }}
     select.addEventListener("change", () => renderDashboard(false));
     trendModeSelect.addEventListener("change", () => renderDashboard(true));
+    tradeCostSelect.addEventListener("change", () => renderDashboard(true));
   </script>
 </body>
 </html>

@@ -16,6 +16,7 @@ accident, see `docs/current_site_contract.md`.
 2. Economic timing turns on when tripped indicators sum to the configured trigger score.
 3. When timing is on, hold the SPY ETF/proxy total-return series only when it is above the selected trend rule.
 4. The published page lets the reader switch between a daily 200-day SMA rule and a monthly 10-month moving-average rule.
+5. The published page also lets the reader switch between no explicit trading cost and a 10 bps bid/ask spread modeled as a 5 bps one-way cost on equity/cash allocation changes.
 5. Compare against the matching moving-average strategy that is always active and against buy-and-hold.
 
 The default ActuallyFinance GTT strategy excludes employment growth from scoring,
@@ -55,7 +56,7 @@ The equity series is stitched to extend the backtest to 1960:
 - 1988 until SPY starts: Yahoo `^SP500TR` daily S&P 500 total-return index.
 - SPY inception onward: adjusted SPY prices as a dividends-reinvested proxy.
 
-The default 200-day mode keeps the existing daily return calculation and writes `output/daily_strategy.csv` plus `output/monthly_signal.csv`. The 10-month mode uses month-end SPY ETF/proxy observations, a 10-month moving average of month-end prices, and a one-month-lagged position change for monthly returns; it writes `output/monthly_signal_10m.csv` and `output/performance_summary_10m.csv`. `output/strategy_variants.json` contains both mode payloads for the strategy dropdown and chart controls.
+The default 200-day mode keeps the existing daily return calculation and writes `output/daily_strategy.csv` plus `output/monthly_signal.csv`. The 10-month mode uses month-end SPY ETF/proxy observations, a 10-month moving average of month-end prices, and a one-month-lagged position change for monthly returns; it writes `output/monthly_signal_10m.csv` and `output/performance_summary_10m.csv`. The optional 10 bps bid/ask cost mode writes companion performance summaries with `_10bps` in the filename. `output/strategy_variants.json` is nested by trend mode and trading-cost mode for the strategy dropdown and chart controls.
 
 Each backtest starts only after the equity proxy has enough history for the selected moving average.
 

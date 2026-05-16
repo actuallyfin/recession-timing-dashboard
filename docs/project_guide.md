@@ -24,6 +24,7 @@ Important responsibilities:
 - Reads the dashboard strategy menu from `published_strategies.py`.
 - Renders current signal tiles, indicator tables, rule summaries, performance tables, and growth charts.
 - Builds the page-level trend-rule selector for daily 200-day SMA mode and monthly 10-month moving-average mode.
+- Builds the page-level trading-cost selector for the default no-cost mode and the optional 10 bps bid/ask spread mode.
 - Creates source links for dated SPY observations through the shared Yahoo Finance helper.
 - Accepts `--refresh` to force fresh data downloads before rebuilding.
 
@@ -49,6 +50,8 @@ Important responsibilities:
 - Produces the structures that `dashboard.py` renders.
 
 The monthly 10-month moving-average mode is assembled in `dashboard.py` from the same daily source output. It resamples completed months, uses month-end prices, compounds cash monthly, shifts the selected month-end trend position forward one month, and calculates monthly performance metrics.
+
+The optional trading-cost mode is also assembled in `dashboard.py`. The 10 bps bid/ask option subtracts a 5 bps one-way cost when a strategy changes between equity and cash. The default mode keeps the published no-cost figures unchanged.
 
 ### `data_loader.py`
 
