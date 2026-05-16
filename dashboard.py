@@ -385,7 +385,6 @@ def svg_signal_chart(monthly: pd.DataFrame, trigger_score: float, height: int = 
     )
     threshold_y = y_pos(trigger_score)
     parts.append(f'<line x1="{pad_left}" y1="{threshold_y:.1f}" x2="{width-pad_right}" y2="{threshold_y:.1f}" stroke="{COLORS["red"]}" stroke-width="1.5" stroke-dasharray="5 5"/>')
-    parts.append(f'<text x="{width-pad_right-4}" y="{threshold_y-8:.1f}" text-anchor="end" font-size="11" fill="{COLORS["red"]}">timing turns on at score {trigger_score:g}</text>')
     parts.append(f'<polyline points="{points}" fill="none" stroke="{COLORS["amber"]}" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round"/>')
 
     x_ticks = pd.date_range(data.index.min(), data.index.max(), periods=6)
@@ -1152,6 +1151,21 @@ def render_html(
       line-height: 1.1;
       font-weight: 760;
     }}
+    .topline {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 6px;
+    }}
+    .home-link {{
+      flex: 0 0 auto;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 680;
+      margin-top: 4px;
+      white-space: nowrap;
+    }}
     h2 {{
       margin: 0 0 14px;
       font-size: 18px;
@@ -1401,6 +1415,9 @@ def render_html(
       h1 {{
         font-size: 24px;
       }}
+      .topline {{
+        align-items: baseline;
+      }}
     }}
     @media (max-width: 640px) {{
       .wrap {{
@@ -1408,6 +1425,13 @@ def render_html(
       }}
       h1 {{
         font-size: 23px;
+      }}
+      .topline {{
+        display: block;
+      }}
+      .home-link {{
+        display: inline-block;
+        margin: 0 0 10px;
       }}
       h2 {{
         font-size: 16px;
@@ -1551,7 +1575,10 @@ def render_html(
 <body>
   <header>
     <div class="wrap">
-      <h1>Recession Timing Dashboard</h1>
+      <div class="topline">
+        <h1>Recession Timing Dashboard</h1>
+        <a class="home-link" href="https://actuallyfinance.com/">ActuallyFinance Home</a>
+      </div>
       <p>This dashboard provides the current inputs to a timing strategy inspired by Philosophical Economics <a href="https://www.philosophicaleconomics.com/2016/01/gtt/">Growth-Trend Timing</a> strategies. Backtested results for the strategy, and variations of the original proposed GTT strategies are also provided below. Economic indicators contribute signal scores based on the latest macro data; when the selected strategy's signal reaches its trigger, the portfolio switches from buy-and-hold to the selected moving-average trend rule.</p>
       <div class="strategy-control">
         <div>
