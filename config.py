@@ -101,7 +101,7 @@ INDICATORS: tuple[IndicatorRule, ...] = (
 #
 # Indicator scores can be mixed and matched by the strategy variants in
 # published_strategies.py. The default ActuallyFinance GTT variant excludes
-# employment growth, counts UNRATE double, and turns timing on when the score
+# employment growth, counts Unemployment Rate Trend double, and turns timing on when the score
 # reaches 2.0.
 #
 # Examples:

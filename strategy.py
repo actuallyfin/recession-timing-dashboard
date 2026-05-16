@@ -23,12 +23,21 @@ from data_loader import (
 
 def _apply_transform(series: pd.Series, transform: str) -> pd.Series:
     if transform == "yoy":
-        prior = series.copy()
-        prior.index = prior.index + pd.DateOffset(years=1)
-        return series / prior.reindex(series.index) - 1
+        prior_12 = _date_shifted_values(series, years=1)
+        prior_11 = _date_shifted_values(series, months=11)
+        prior_13 = _date_shifted_values(series, months=13)
+        interpolated_prior = (prior_11 + prior_13) / 2
+        prior = prior_12.combine_first(interpolated_prior)
+        return series / prior - 1
     if transform == "above_12m_sma":
         return series - series.rolling(12, min_periods=12).mean()
     raise ValueError(f"Unknown transform: {transform}")
+
+
+def _date_shifted_values(series: pd.Series, years: int = 0, months: int = 0) -> pd.Series:
+    shifted = series.copy()
+    shifted.index = shifted.index + pd.DateOffset(years=years, months=months)
+    return shifted.reindex(series.index)
 
 
 def _threshold_series(series: pd.Series, transform: str, threshold: float) -> pd.Series:
