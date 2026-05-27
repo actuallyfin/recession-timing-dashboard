@@ -1137,6 +1137,12 @@ def render_html(
       background: var(--bg);
       letter-spacing: 0;
     }}
+    body::before {{
+      content: "";
+      display: block;
+      height: 6px;
+      background: var(--teal);
+    }}
     header {{
       background: #ffffff;
       border-bottom: 1px solid var(--line);
@@ -1171,6 +1177,8 @@ def render_html(
       margin: 0 0 14px;
       font-size: 18px;
       line-height: 1.2;
+      padding-left: 10px;
+      border-left: 4px solid var(--teal);
     }}
     p {{
       margin: 0;
@@ -1240,6 +1248,7 @@ def render_html(
     .metric, section {{
       background: var(--panel);
       border: 1px solid var(--line);
+      border-top: 4px solid var(--teal);
       border-radius: 8px;
       box-shadow: var(--shadow);
     }}
