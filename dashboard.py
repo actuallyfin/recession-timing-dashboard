@@ -1127,6 +1127,7 @@ def render_html(
       --teal: {COLORS["teal"]};
       --bg: #f6f8fa;
       --panel: #ffffff;
+      --shadow: 0 10px 28px rgba(31, 41, 55, 0.06);
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -1160,7 +1161,7 @@ def render_html(
     }}
     .home-link {{
       flex: 0 0 auto;
-      color: var(--blue);
+      color: var(--teal);
       font-size: 13px;
       font-weight: 680;
       margin-top: 4px;
@@ -1226,6 +1227,10 @@ def render_html(
       padding: 9px 10px;
       font-size: 15px;
     }}
+    select:focus {{
+      outline: 2px solid rgba(15, 118, 110, 0.22);
+      border-color: var(--teal);
+    }}
     .status {{
       display: grid;
       grid-template-columns: minmax(0, 1.5fr) repeat(4, minmax(140px, 1fr));
@@ -1236,6 +1241,7 @@ def render_html(
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
+      box-shadow: var(--shadow);
     }}
     .metric {{
       padding: 16px;
@@ -1351,6 +1357,7 @@ def render_html(
       vertical-align: middle;
     }}
     th {{
+      background: #f6f8fa;
       color: var(--muted);
       font-size: 12px;
       text-transform: uppercase;
@@ -1374,7 +1381,7 @@ def render_html(
       font-variant-numeric: tabular-nums;
     }}
     a {{
-      color: var(--blue);
+      color: var(--teal);
       text-decoration: none;
     }}
     .pill {{
