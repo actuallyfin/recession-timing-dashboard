@@ -40,6 +40,32 @@ jobs:
           python dashboard.py --refresh
           touch output/.nojekyll
 
+      - name: Check out ActuallyFinance site
+        uses: actions/checkout@v4
+        with:
+          repository: actuallyfin/actuallyfinance-site
+          token: ${{ secrets.SITE_SYNC_TOKEN }}
+          path: actuallyfinance-site
+
+      - name: Sync dashboard to actuallyfinance.com site repo
+        run: |
+          rm -rf actuallyfinance-site/recession-timing-dashboard
+          mkdir -p actuallyfinance-site/recession-timing-dashboard
+          cp -a output/. actuallyfinance-site/recession-timing-dashboard/
+
+      - name: Commit dashboard sync
+        working-directory: actuallyfinance-site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add recession-timing-dashboard
+          if git diff --cached --quiet; then
+            echo "No actuallyfinance-site dashboard changes to sync."
+          else
+            git commit -m "Sync recession timing dashboard"
+            git push
+          fi
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
