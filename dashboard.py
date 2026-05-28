@@ -1140,7 +1140,7 @@ def render_html(
     body::before {{
       content: "";
       display: block;
-      height: 6px;
+      height: 4px;
       background: var(--teal);
     }}
     header {{
