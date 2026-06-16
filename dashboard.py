@@ -793,7 +793,7 @@ def render_recent_rows(monthly: pd.DataFrame) -> str:
           <td data-label="Signal Score" class="num">{num(row.signal_score, 1)}</td>
           <td data-label="Timing On">{yes_no(bool(row.timing_on))}</td>
           <td data-label="Position">{'Invested' if row.combined_invested else 'Defensive'}</td>
-          <td data-label="SPY ETF" class="num">{num(row.Close, 2)}</td>
+          <td data-label="SPY ETF EOM Price" class="num">{num(row.Close, 2)}</td>
           <td data-label="Trend MA" class="num">{num(row.trend_level, 2)}</td>
         </tr>
         """
@@ -1693,7 +1693,7 @@ def render_html(
     <section>
       <h2>Recent Monthly Signal</h2>
       <table class="responsive-table">
-        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">SPY ETF</th><th id="recent-trend-header" class="num">{summary["recentTrendHeader"]}</th></tr></thead>
+        <thead><tr><th>Month</th><th class="num">Signal Score</th><th>Timing On</th><th>Position</th><th class="num">SPY ETF EOM Price</th><th id="recent-trend-header" class="num">{summary["recentTrendHeader"]}</th></tr></thead>
         <tbody id="recent-rows">{default_payload["recentRows"]}</tbody>
       </table>
     </section>
