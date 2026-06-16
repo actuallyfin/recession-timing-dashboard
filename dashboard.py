@@ -233,7 +233,7 @@ def build_current_rows_for_variant(
                 "signal_score": included_score,
                 "latest_raw_value": latest_raw_values.get(rule.key, np.nan),
                 "current_threshold": latest_thresholds.get(rule.key, np.nan),
-                "data_through": observation_date.strftime("%Y-%m-%d") if pd.notna(observation_date) else "",
+                "data_through": observation_date.strftime("%Y-%m") if pd.notna(observation_date) else "",
                 "available_date": available_date.strftime("%Y-%m-%d") if pd.notna(available_date) else "",
                 "next_update": next_update_dates.get(rule.key, "n/a"),
                 "latest_value": latest_values.get(rule.key, np.nan),
