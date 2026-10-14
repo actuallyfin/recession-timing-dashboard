@@ -9,6 +9,7 @@ on:
     - cron: "20 21 * * 1-5"
 
 permissions:
+  actions: write
   contents: read
   pages: write
   id-token: write
@@ -21,6 +22,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # GitHub disables scheduled workflows after 60 days without repo
+      # activity; the sync commits land in another repo, so re-enable here.
+      - name: Keep scheduled workflow enabled
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/deploy-pages.yml/enable"
+
       - name: Check out repository
         uses: actions/checkout@v4
 
