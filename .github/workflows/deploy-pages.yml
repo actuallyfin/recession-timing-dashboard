@@ -7,6 +7,9 @@ on:
   schedule:
     # After the 4:10pm ET completed-bar buffer in data_loader.py.
     - cron: "20 21 * * 1-5"
+    # Late catch-up (11:20pm EST / 12:20am EDT): GitHub often delays the run
+    # above into the ~8-9:30pm ET window, when Yahoo can omit that day's bar.
+    - cron: "20 4 * * 2-6"
 
 permissions:
   actions: write
